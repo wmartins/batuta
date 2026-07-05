@@ -1,0 +1,188 @@
+import { DatabaseSync } from "node:sqlite";
+import { Quota, Scope, type Storage, type Usage } from "../domain/index.js";
+
+export type SQLite3StorageOptions =
+  | { database: DatabaseSync }
+  | { filename: string };
+
+type UsageRow = {
+  quotaMetric: string;
+  quotaScope: string;
+  quotaLimit: number;
+  windowAmount: number;
+  windowUnit: Quota.Synthetic["window"]["unit"];
+  scopeValue: string;
+  consumed: number;
+};
+
+const LATEST_SCHEMA_VERSION = 1;
+
+const MIGRATION_1 = `
+  CREATE TABLE quotas (
+    id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
+    metric TEXT NOT NULL CHECK (length(metric) > 0),
+    scope_key TEXT NOT NULL CHECK (length(scope_key) > 0),
+    quota_limit REAL NOT NULL CHECK (
+      quota_limit >= 0 AND quota_limit <= 1.7976931348623157e308
+    ),
+    window_amount INTEGER NOT NULL CHECK (window_amount > 0),
+    window_unit TEXT NOT NULL CHECK (
+      window_unit IN ('minute', 'hour', 'day', 'week')
+    )
+  ) STRICT;
+
+  CREATE TABLE usage (
+    id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
+    metric TEXT NOT NULL CHECK (length(metric) > 0),
+    scope_key TEXT NOT NULL CHECK (length(scope_key) > 0),
+    scope_value TEXT NOT NULL CHECK (length(scope_value) > 0),
+    consumed REAL NOT NULL CHECK (
+      consumed > 0 AND consumed <= 1.7976931348623157e308
+    ),
+    occurred_at INTEGER NOT NULL
+  ) STRICT;
+
+  CREATE INDEX usage_lookup_idx
+  ON usage (metric, scope_key, scope_value, occurred_at);
+`;
+
+export class SQLite3Storage implements Storage {
+  readonly database: DatabaseSync;
+
+  constructor(options: SQLite3StorageOptions) {
+    this.database =
+      "database" in options
+        ? options.database
+        : new DatabaseSync(options.filename);
+  }
+
+  async initialize(): Promise<void> {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database.exec(`
+        CREATE TABLE IF NOT EXISTS migrations (
+          version INTEGER PRIMARY KEY NOT NULL,
+          applied_at INTEGER NOT NULL
+        ) STRICT
+      `);
+
+      const version = Number(
+        this.database
+          .prepare(
+            "SELECT COALESCE(MAX(version), 0) AS version FROM migrations",
+          )
+          .get()?.version ?? 0,
+      );
+
+      if (version > LATEST_SCHEMA_VERSION) {
+        throw new Error(
+          `SQLite schema version ${version} is newer than supported version ${LATEST_SCHEMA_VERSION}`,
+        );
+      }
+
+      if (version < 1) {
+        this.database.exec(MIGRATION_1);
+        this.database
+          .prepare("INSERT INTO migrations (version, applied_at) VALUES (?, ?)")
+          .run(1, Date.now());
+      }
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async usage(input: Storage.Usage.Input): Promise<Storage.Usage.Result[]> {
+    const values = input.scopes
+      .map((_, index) => `(:scope_key_${index}, :scope_value_${index})`)
+      .join(", ");
+    const at = input.at.getTime();
+    const parameters: Record<string, string | number> = {
+      ":metric": input.metric,
+      ":at": at,
+    };
+    for (const [index, scope] of input.scopes.entries()) {
+      parameters[`:scope_key_${index}`] = scope.key;
+      parameters[`:scope_value_${index}`] = scope.value;
+    }
+
+    const rows = this.database
+      .prepare(`
+        WITH requested_scopes(scope_key, scope_value) AS (VALUES ${values})
+        SELECT
+          quota.metric AS quotaMetric,
+          quota.scope_key AS quotaScope,
+          quota.quota_limit AS quotaLimit,
+          quota.window_amount AS windowAmount,
+          quota.window_unit AS windowUnit,
+          requested.scope_value AS scopeValue,
+          COALESCE(SUM(event.consumed), 0) AS consumed
+        FROM quotas AS quota
+        JOIN requested_scopes AS requested
+          ON requested.scope_key = quota.scope_key
+        LEFT JOIN usage AS event
+          ON event.metric = quota.metric
+          AND event.scope_key = requested.scope_key
+          AND event.scope_value = requested.scope_value
+          AND event.occurred_at > :at
+            - quota.window_amount
+            * CASE quota.window_unit
+                WHEN 'minute' THEN 60000
+                WHEN 'hour' THEN 3600000
+                WHEN 'day' THEN 86400000
+                WHEN 'week' THEN 604800000
+              END
+          AND event.occurred_at <= :at
+        WHERE quota.metric = :metric
+        GROUP BY quota.id, requested.scope_key, requested.scope_value
+      `)
+      .all(parameters) as UsageRow[];
+
+    return rows.map((row) => {
+      const quota = Quota.validate({
+        metric: row.quotaMetric,
+        scope: row.quotaScope,
+        limit: row.quotaLimit,
+        window: { amount: row.windowAmount, unit: row.windowUnit },
+      });
+      return {
+        quota,
+        scope: Scope.validate({
+          key: row.quotaScope,
+          value: row.scopeValue,
+        }),
+        consumed: row.consumed,
+      };
+    });
+  }
+
+  async record(usages: readonly Usage.Synthetic[]): Promise<void> {
+    if (usages.length === 0) {
+      return;
+    }
+
+    const statement = this.database.prepare(`
+      INSERT INTO usage
+        (metric, scope_key, scope_value, consumed, occurred_at)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const usage of usages) {
+        statement.run(
+          usage.metric,
+          usage.scope.key,
+          usage.scope.value,
+          usage.consumed,
+          usage.occurredAt.getTime(),
+        );
+      }
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+}
