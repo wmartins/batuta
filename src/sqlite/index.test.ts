@@ -68,28 +68,25 @@ describe("SQLite3Storage initialization", () => {
     expect(
       db
         .prepare(
-          "SELECT name FROM sqlite_master WHERE name IN ('migrations', 'quotas', 'usage')",
+          "SELECT name FROM sqlite_master WHERE name IN ('quotas', 'usage')",
         )
         .all(),
     ).toEqual([]);
   });
 
-  it("creates schema version 1 and is idempotent on one instance", async () => {
+  it("creates the schema and is idempotent on one instance", async () => {
     const db = database();
     const storage = new SQLite3Storage({ database: db });
     await storage.initialize();
     await storage.initialize();
 
-    expect(db.prepare("SELECT version FROM migrations").all()).toEqual([
-      { version: 1 },
-    ]);
     expect(
       db
         .prepare(
-          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('migrations', 'quotas', 'usage') ORDER BY name",
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('quotas', 'usage') ORDER BY name",
         )
         .all(),
-    ).toEqual([{ name: "migrations" }, { name: "quotas" }, { name: "usage" }]);
+    ).toEqual([{ name: "quotas" }, { name: "usage" }]);
   });
 
   it("allows a second adapter to initialize the same database", async () => {
@@ -97,22 +94,12 @@ describe("SQLite3Storage initialization", () => {
     await new SQLite3Storage({ database: db }).initialize();
     await new SQLite3Storage({ database: db }).initialize();
     expect(
-      db.prepare("SELECT COUNT(*) AS count FROM migrations").get(),
-    ).toEqual({ count: 1 });
-  });
-
-  it("rejects a schema newer than the adapter understands", async () => {
-    const db = database();
-    db.exec(`
-      CREATE TABLE migrations (
-        version INTEGER PRIMARY KEY NOT NULL,
-        applied_at INTEGER NOT NULL
-      ) STRICT;
-      INSERT INTO migrations VALUES (2, 0);
-    `);
-    await expect(
-      new SQLite3Storage({ database: db }).initialize(),
-    ).rejects.toThrow("schema version 2 is newer than supported version 1");
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name IN ('quotas', 'usage')",
+        )
+        .get(),
+    ).toEqual({ count: 2 });
   });
 });
 

@@ -4,9 +4,9 @@
 
 <h1 align="center">Batuta</h1>
 
-Batuta is a small TypeScript quota engine for tracking arbitrary usage metrics
-across one or more scopes. It ships with a SQLite adapter built on Node's
-`node:sqlite` module.
+Batuta is a storage-agnostic TypeScript quota engine. It defines how usage is
+recorded and evaluated across arbitrary metrics and scopes; applications decide
+where that data lives by providing a `Storage` implementation.
 
 ## Concepts
 
@@ -23,7 +23,162 @@ for a user in a company records one usage event for the user and another for the
 company. Batuta evaluates every matching quota and reports the operation as
 exceeded when any consumption is greater than or equal to its limit.
 
-## Requirements and setup
+## Public API
+
+The client, domain values, and storage contract are exported from `batuta`:
+
+```ts
+import {
+  Batuta,
+  Metric,
+  Quota,
+  Scope,
+  type Storage,
+  Usage,
+  Window,
+} from "batuta";
+```
+
+Domain namespaces expose constructors that enforce invariants and return the
+validated value:
+
+```ts
+const metric = Metric.validate("credits");
+const scope = Scope.validate({ key: "user", value: "user-123" });
+const window = Window.validate({ amount: 14, unit: "day" });
+```
+
+`Quota.validate()` and `Usage.validate()` do the same for their domain objects.
+Domain values do not contain persistence IDs; IDs belong to storage
+implementations.
+
+## Bring your own storage
+
+`Batuta` captures one timestamp per operation and delegates persistence to a
+small interface:
+
+```ts
+interface Storage {
+  usage(input: Storage.Usage.Input): Promise<Storage.Usage.Result[]>;
+  record(usages: readonly Usage.Synthetic[]): Promise<void>;
+}
+```
+
+A storage implementation is responsible for:
+
+- Finding every quota matching the requested metric and scope keys.
+- Returning consumption for every matching quota and concrete scope.
+- Recording one immutable usage event per supplied scope.
+- Applying the elapsed-window semantics described below.
+
+The contract deliberately contains no initialization, quota-management, or
+connection-cleanup methods. Those concerns belong to each implementation and
+its owner.
+
+Applications can implement this interface over their existing database or
+infrastructure. A managed Batuta service is planned for applications that would
+rather delegate storage and its operation entirely.
+
+## Check and record
+
+```ts
+import { Batuta, Metric, Scope, type Storage } from "batuta";
+
+declare const storage: Storage; // Your storage implementation
+
+const batuta = new Batuta({ storage });
+const metric = Metric.validate("credits");
+const scopes = [
+  Scope.validate({ key: "company", value: "company-123" }),
+  Scope.validate({ key: "user", value: "user-123" }),
+];
+
+const { exceeded } = await batuta.check({ metric, scopes });
+
+if (!exceeded) {
+  await batuta.record({ metric, scopes, consumed: 10 });
+}
+```
+
+No matching quota produces `{ exceeded: false }`. Recording creates one usage
+event per supplied scope and assigns every event the same timestamp.
+
+`check()` and `record()` are separate and are not atomic. Storage
+implementations or applications that require stronger concurrency guarantees
+must provide that coordination themselves.
+
+## Window semantics
+
+Windows are elapsed durations ending at the check time. A 14-day window always
+means the preceding `14 * 24` hours; it is not a calendar period. The queried
+interval is `(at - duration, at]`: an event exactly one complete window old is
+excluded, an event at `at` is included, and future events are excluded.
+
+Minutes, hours, days, and weeks are fixed at 60 seconds, 60 minutes, 24 hours,
+and seven days respectively.
+
+## SQLite adapter
+
+Batuta includes `batuta/sqlite` as a straightforward storage implementation
+built on Node's `node:sqlite`.
+
+> [!NOTE]
+> The adapter manages quota data, not the SQLite instance itself. Applications
+> using it own deployment, backups, concurrency planning, maintenance, and
+> schema upgrades. `initialize()` creates the current schema but does not migrate
+> older schemas.
+
+The adapter uses Node's built-in `node:sqlite`. Construct it with an existing
+connection or a filename, then initialize its schema explicitly:
+
+```ts
+import { DatabaseSync } from "node:sqlite";
+import { SQLite3Storage } from "batuta/sqlite";
+
+const database = new DatabaseSync(":memory:");
+const storage = new SQLite3Storage({ database });
+
+// Alternatively, open a file-backed database:
+const fileStorage = new SQLite3Storage({ filename: "./batuta.db" });
+
+await storage.initialize();
+await fileStorage.initialize();
+```
+
+Initialization transactionally creates `quotas`, `usage`, and the usage lookup
+index if they do not exist. Construction does not mutate the schema. The adapter
+never closes a connection; its owner must close `storage.database`.
+
+Quota management remains external SQL:
+
+```ts
+storage.database
+  .prepare(`
+    INSERT INTO quotas
+      (metric, scope_key, quota_limit, window_amount, window_unit)
+    VALUES (?, ?, ?, ?, ?)
+  `)
+  .run("credits", "user", 100, 14, "day");
+```
+
+The `quotas` table contains `id`, `metric`, `scope_key`, `quota_limit`,
+`window_amount`, and `window_unit`. The append-only `usage` table contains `id`,
+`metric`, `scope_key`, `scope_value`, `consumed`, and `occurred_at`. Timestamps
+are Unix milliseconds.
+
+Usage events are not associated with quota IDs, so one event can contribute to
+multiple overlapping quotas. `record()` inserts each operation's events in one
+transaction, and `usage()` performs matching and aggregation in one query.
+
+## Current limitations
+
+- Month, year, calendar-aligned, and billing-cycle windows are unsupported.
+- Refunds, negative adjustments, and usage reversal are unsupported.
+- `check()` returns only `{ exceeded }`.
+- Atomic check-and-record behavior is not provided by the core library.
+- The SQLite adapter does not manage database operations or schema upgrades.
+
+## Development
 
 Batuta requires Node.js `>=22.13.0` and uses pnpm through Corepack. Local
 development pins Node.js `22.14.0` in `.tool-versions` and pnpm `11.10.0` in
@@ -41,176 +196,6 @@ direnv allow
 corepack enable
 pnpm install
 ```
-
-Hook direnv into your shell before running `direnv allow`. Review `.envrc`
-first; it contains only `use asdf`. Entering the repository then selects the
-pinned runtime and package manager.
-
-## Public API
-
-The client, domain values, and storage contract are exported from `batuta`. The
-SQLite adapter is exported from `batuta/sqlite`:
-
-```ts
-import {
-  Batuta,
-  Metric,
-  Quota,
-  Scope,
-  type Storage,
-  Usage,
-  Window,
-} from "batuta";
-import {
-  SQLite3Storage,
-  type SQLite3StorageOptions,
-} from "batuta/sqlite";
-```
-
-Domain namespaces expose constructors that enforce invariants and return the
-validated value:
-
-```ts
-const metric = Metric.validate("credits");
-const scope = Scope.validate({ key: "user", value: "user-123" });
-const window = Window.validate({ amount: 14, unit: "day" });
-```
-
-`Quota.validate()` and `Usage.validate()` do the same for their domain objects.
-Domain values do not contain persistence IDs; IDs belong to storage adapters.
-
-## Architecture
-
-`Batuta` coordinates quota checks and usage recording. It captures one current
-timestamp per operation and delegates persistence to this minimal contract:
-
-```ts
-interface Storage {
-  usage(input: Storage.Usage.Input): Promise<Storage.Usage.Result[]>;
-  record(usages: readonly Usage.Synthetic[]): Promise<void>;
-}
-```
-
-The generic interface deliberately contains no initialization, quota CRUD, or
-connection cleanup methods. Adapter initialization is adapter-specific, quota
-management is external, and connection ownership remains with the caller.
-
-## SQLite
-
-Construct the adapter with an existing connection or a filename, then initialize
-it explicitly:
-
-```ts
-import { DatabaseSync } from "node:sqlite";
-import { SQLite3Storage } from "batuta/sqlite";
-
-const database = new DatabaseSync(":memory:");
-const storage = new SQLite3Storage({ database });
-
-// Alternatively, open a file-backed connection:
-const fileStorage = new SQLite3Storage({ filename: "./batuta.db" });
-
-await storage.initialize();
-await fileStorage.initialize();
-```
-
-Initialization is transactional and idempotent. Construction does not mutate
-the schema. Batuta never closes either injected or filename-created connections;
-close `storage.database` when its owner is finished with it.
-
-### Schema
-
-Schema version 1 contains three tables:
-
-- `migrations` tracks applied versions and their Unix-millisecond timestamps.
-- `quotas` stores persisted quota configuration.
-- `usage` stores append-only usage events with Unix-millisecond timestamps.
-
-The `quotas` columns are:
-
-| Column | Meaning |
-| --- | --- |
-| `id` | SQLite-generated text primary key when omitted |
-| `metric` | Metric name |
-| `scope_key` | Scope kind matched against `Scope.key` |
-| `quota_limit` | Finite, non-negative usage limit |
-| `window_amount` | Positive integer duration amount |
-| `window_unit` | `minute`, `hour`, `day`, or `week` |
-
-The `usage` columns are `id`, `metric`, `scope_key`, `scope_value`, `consumed`,
-and `occurred_at`. Usage is indexed by metric, scope key, scope value, and
-occurrence time. Events are not associated with quota IDs, so one event can
-contribute to multiple overlapping quotas.
-
-Quota management remains external SQL. Insert quotas with parameterized SQL
-through the exposed connection:
-
-```ts
-storage.database
-  .prepare(`
-    INSERT INTO quotas
-      (metric, scope_key, quota_limit, window_amount, window_unit)
-    VALUES (?, ?, ?, ?, ?)
-  `)
-  .run("credits", "user", 100, 14, "day");
-```
-
-## Check and record
-
-```ts
-import { Batuta, Metric, Scope } from "batuta";
-import { SQLite3Storage } from "batuta/sqlite";
-
-const storage = new SQLite3Storage({ filename: "./batuta.db" });
-await storage.initialize();
-
-storage.database
-  .prepare(`
-    INSERT INTO quotas
-      (metric, scope_key, quota_limit, window_amount, window_unit)
-    VALUES (?, ?, ?, ?, ?)
-  `)
-  .run("credits", "user", 100, 14, "day");
-
-const batuta = new Batuta({ storage });
-const metric = Metric.validate("credits");
-const scopes = [
-  Scope.validate({ key: "company", value: "company-123" }),
-  Scope.validate({ key: "user", value: "user-123" }),
-];
-
-const { exceeded } = await batuta.check({ metric, scopes });
-
-if (!exceeded) {
-  await batuta.record({ metric, scopes, consumed: 10 });
-}
-
-storage.database.close();
-```
-
-No matching quota produces `{ exceeded: false }`. Recording creates one usage
-event per supplied scope, assigns every event the same timestamp, and inserts the
-batch in one SQLite transaction.
-
-## Window semantics
-
-Windows are elapsed durations ending at the check time. A 14-day window always
-means the preceding `14 * 24` hours; it is not a calendar period. The queried
-interval is `(at - duration, at]`: an event exactly one complete window old is
-excluded, an event at `at` is included, and future events are excluded.
-
-Minutes, hours, days, and weeks are fixed at 60 seconds, 60 minutes, 24 hours,
-and seven days respectively.
-
-## Current limitations
-
-- `check()` and `record()` are separate and are not atomic.
-- Month, year, calendar-aligned, and billing-cycle windows are unsupported.
-- Refunds, negative adjustments, and usage reversal are unsupported.
-- Quota CRUD is not part of the SDK; quotas are managed through SQL.
-- Callers are responsible for closing adapter connections.
-
-## Development
 
 Unit and adapter tests are colocated with source files. Cross-component and
 generated-package tests live under `test/integration`.

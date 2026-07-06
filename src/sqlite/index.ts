@@ -15,10 +15,8 @@ type UsageRow = {
   consumed: number;
 };
 
-const LATEST_SCHEMA_VERSION = 1;
-
-const MIGRATION_1 = `
-  CREATE TABLE quotas (
+const SCHEMA = `
+  CREATE TABLE IF NOT EXISTS quotas (
     id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
     metric TEXT NOT NULL CHECK (length(metric) > 0),
     scope_key TEXT NOT NULL CHECK (length(scope_key) > 0),
@@ -31,7 +29,7 @@ const MIGRATION_1 = `
     )
   ) STRICT;
 
-  CREATE TABLE usage (
+  CREATE TABLE IF NOT EXISTS usage (
     id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
     metric TEXT NOT NULL CHECK (length(metric) > 0),
     scope_key TEXT NOT NULL CHECK (length(scope_key) > 0),
@@ -42,7 +40,7 @@ const MIGRATION_1 = `
     occurred_at INTEGER NOT NULL
   ) STRICT;
 
-  CREATE INDEX usage_lookup_idx
+  CREATE INDEX IF NOT EXISTS usage_lookup_idx
   ON usage (metric, scope_key, scope_value, occurred_at);
 `;
 
@@ -59,33 +57,7 @@ export class SQLite3Storage implements Storage {
   async initialize(): Promise<void> {
     this.database.exec("BEGIN IMMEDIATE");
     try {
-      this.database.exec(`
-        CREATE TABLE IF NOT EXISTS migrations (
-          version INTEGER PRIMARY KEY NOT NULL,
-          applied_at INTEGER NOT NULL
-        ) STRICT
-      `);
-
-      const version = Number(
-        this.database
-          .prepare(
-            "SELECT COALESCE(MAX(version), 0) AS version FROM migrations",
-          )
-          .get()?.version ?? 0,
-      );
-
-      if (version > LATEST_SCHEMA_VERSION) {
-        throw new Error(
-          `SQLite schema version ${version} is newer than supported version ${LATEST_SCHEMA_VERSION}`,
-        );
-      }
-
-      if (version < 1) {
-        this.database.exec(MIGRATION_1);
-        this.database
-          .prepare("INSERT INTO migrations (version, applied_at) VALUES (?, ?)")
-          .run(1, Date.now());
-      }
+      this.database.exec(SCHEMA);
       this.database.exec("COMMIT");
     } catch (error) {
       this.database.exec("ROLLBACK");
