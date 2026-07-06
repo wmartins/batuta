@@ -40,7 +40,9 @@ function insertQuota(
   );
 }
 
-function event(input: Partial<Usage.Synthetic> = {}): Usage.Synthetic {
+function event(
+  input: Partial<Usage.Synthetic<string, string>> = {},
+): Usage.Synthetic<string, string> {
   return {
     metric: "credits",
     scope: { key: "user", value: "user-1" },

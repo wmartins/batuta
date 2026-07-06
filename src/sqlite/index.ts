@@ -16,7 +16,7 @@ type UsageRow = {
   quotaScope: string;
   quotaLimit: number;
   windowAmount: number;
-  windowUnit: Quota.Synthetic["window"]["unit"];
+  windowUnit: Quota.Synthetic<string, string>["window"]["unit"];
   scopeValue: string;
   consumed: number;
 };
@@ -51,8 +51,8 @@ const SCHEMA = `
 `;
 
 export class SQLite3Storage<
-  MetricName extends Metric = Metric,
-  ScopeKey extends Scope["key"] = Scope["key"],
+  MetricName extends Metric<string>,
+  ScopeKey extends Scope<string>["key"],
 > implements Storage<MetricName, ScopeKey>
 {
   readonly database: DatabaseSync;
@@ -132,10 +132,13 @@ export class SQLite3Storage<
       });
       return {
         quota,
-        scope: Scope.validate({
-          key: row.quotaScope as ScopeKey,
-          value: row.scopeValue,
-        }),
+        scope: Scope.validate(
+          {
+            key: row.quotaScope as ScopeKey,
+            value: row.scopeValue,
+          },
+          "scope",
+        ),
         consumed: row.consumed,
       };
     });

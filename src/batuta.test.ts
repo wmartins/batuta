@@ -7,29 +7,33 @@ import {
   type Usage,
 } from "./index.js";
 
-class FakeStorage implements Storage {
-  usageInputs: Storage.Usage.Input[] = [];
-  recorded: readonly Usage.Synthetic[] = [];
-  results: Storage.Usage.Result[] = [];
+class FakeStorage implements Storage<string, string> {
+  usageInputs: Storage.Usage.Input<string, string>[] = [];
+  recorded: readonly Usage.Synthetic<string, string>[] = [];
+  results: Storage.Usage.Result<string, string>[] = [];
 
-  async usage(input: Storage.Usage.Input): Promise<Storage.Usage.Result[]> {
+  async usage(
+    input: Storage.Usage.Input<string, string>,
+  ): Promise<Storage.Usage.Result<string, string>[]> {
     this.usageInputs.push(input);
     return this.results;
   }
 
-  async record(usages: readonly Usage.Synthetic[]): Promise<void> {
+  async record(
+    usages: readonly Usage.Synthetic<string, string>[],
+  ): Promise<void> {
     this.recorded = usages;
   }
 }
 
-const quota = (limit: number): Quota.Synthetic => ({
+const quota = (limit: number): Quota.Synthetic<string, string> => ({
   metric: "credits",
   scope: "user",
   limit,
   window: { amount: 1, unit: "day" },
 });
 
-const scope: Scope = { key: "user", value: "user-123" };
+const scope: Scope<string> = { key: "user", value: "user-123" };
 
 afterEach(() => {
   vi.useRealTimers();

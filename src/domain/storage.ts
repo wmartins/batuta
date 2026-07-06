@@ -4,8 +4,8 @@ import type { Scope } from "./scope.js";
 import type { Usage } from "./usage.js";
 
 export interface Storage<
-  MetricName extends Metric = Metric,
-  ScopeKey extends Scope["key"] = Scope["key"],
+  MetricName extends Metric<string>,
+  ScopeKey extends Scope<string>["key"],
 > {
   usage(
     input: Storage.Usage.Input<MetricName, ScopeKey>,
@@ -19,8 +19,8 @@ export interface Storage<
 export namespace Storage {
   export namespace Usage {
     export type Input<
-      MetricName extends Metric = Metric,
-      ScopeKey extends Scope["key"] = Scope["key"],
+      MetricName extends Metric<string>,
+      ScopeKey extends Scope<string>["key"],
     > = {
       metric: MetricName;
       scopes: Scope<ScopeKey>[];
@@ -28,8 +28,8 @@ export namespace Storage {
     };
 
     export type Result<
-      MetricName extends Metric = Metric,
-      ScopeKey extends Scope["key"] = Scope["key"],
+      MetricName extends Metric<string>,
+      ScopeKey extends Scope<string>["key"],
     > = {
       quota: Quota.Synthetic<MetricName, ScopeKey>;
       scope: Scope<ScopeKey>;

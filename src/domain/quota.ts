@@ -4,8 +4,8 @@ import { Window } from "./window.js";
 
 export namespace Quota {
   export type Synthetic<
-    MetricName extends Metric = Metric,
-    ScopeKey extends Scope["key"] = Scope["key"],
+    MetricName extends Metric<string>,
+    ScopeKey extends Scope<string>["key"],
   > = {
     metric: MetricName;
     scope: ScopeKey;
@@ -14,8 +14,8 @@ export namespace Quota {
   };
 
   export function validate<
-    const MetricName extends Metric,
-    const ScopeKey extends Scope["key"],
+    const MetricName extends Metric<string>,
+    const ScopeKey extends Scope<string>["key"],
   >(quota: Synthetic<MetricName, ScopeKey>): Synthetic<MetricName, ScopeKey> {
     Metric.validate(quota.metric);
     if (quota.scope.length === 0) {

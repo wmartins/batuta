@@ -3,8 +3,8 @@ import { Scope } from "./scope.js";
 
 export namespace Usage {
   export type Synthetic<
-    MetricName extends Metric = Metric,
-    ScopeKey extends Scope["key"] = Scope["key"],
+    MetricName extends Metric<string>,
+    ScopeKey extends Scope<string>["key"],
   > = {
     metric: MetricName;
     scope: Scope<ScopeKey>;
@@ -13,11 +13,11 @@ export namespace Usage {
   };
 
   export function validate<
-    const MetricName extends Metric,
-    const ScopeKey extends Scope["key"],
+    const MetricName extends Metric<string>,
+    const ScopeKey extends Scope<string>["key"],
   >(usage: Synthetic<MetricName, ScopeKey>): Synthetic<MetricName, ScopeKey> {
     Metric.validate(usage.metric);
-    Scope.validate(usage.scope);
+    Scope.validate(usage.scope, "usage.scope");
     if (!Number.isFinite(usage.consumed) || usage.consumed <= 0) {
       throw new TypeError("consumed must be finite and greater than zero");
     }

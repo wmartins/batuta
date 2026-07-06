@@ -44,7 +44,7 @@ validated value:
 
 ```ts
 const metric = Metric.validate("credits");
-const scope = Scope.validate({ key: "user", value: "user-123" });
+const scope = Scope.validate({ key: "user", value: "user-123" }, "scope");
 const window = Window.validate({ amount: 14, unit: "day" });
 ```
 
@@ -64,8 +64,7 @@ await batuta.check({
 ```
 
 The configured metric and scope-key unions flow through `Batuta`, `Storage`,
-`Quota.Synthetic`, and `Usage.Synthetic`. Omitting the generic arguments keeps
-the unrestricted `string` behavior.
+`Quota.Synthetic`, and `Usage.Synthetic`.
 
 `Quota.validate()` and `Usage.validate()` do the same for their domain objects.
 Domain values do not contain persistence IDs; IDs belong to storage
@@ -77,9 +76,11 @@ implementations.
 small interface:
 
 ```ts
-interface Storage {
-  usage(input: Storage.Usage.Input): Promise<Storage.Usage.Result[]>;
-  record(usages: readonly Usage.Synthetic[]): Promise<void>;
+interface Storage<Metric extends string, Scope extends string> {
+  usage(
+    input: Storage.Usage.Input<Metric, Scope>,
+  ): Promise<Storage.Usage.Result<Metric, Scope>[]>;
+  record(usages: readonly Usage.Synthetic<Metric, Scope>[]): Promise<void>;
 }
 ```
 
@@ -101,15 +102,18 @@ rather delegate storage and its operation entirely.
 ## Check and record
 
 ```ts
-import { Batuta, Metric, Scope, type Storage } from "batuta";
+import { Batuta, type Storage } from "batuta";
 
-declare const storage: Storage; // Your storage implementation
+type Metric = "credits" | "tokens";
+type Scope = "user" | "company";
 
-const batuta = new Batuta({ storage });
-const metric = Metric.validate("credits");
+declare const storage: Storage<Metric, Scope>; // Your storage implementation
+
+const batuta = new Batuta<Metric, Scope>({ storage });
+const metric: Metric = "credits";
 const scopes = [
-  Scope.validate({ key: "company", value: "company-123" }),
-  Scope.validate({ key: "user", value: "user-123" }),
+  { key: "company" as const, value: "company-123" },
+  { key: "user" as const, value: "user-123" },
 ];
 
 const { exceeded } = await batuta.check({ metric, scopes });

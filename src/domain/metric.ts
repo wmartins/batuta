@@ -1,4 +1,4 @@
-export type Metric<Name extends string = string> = Name;
+export type Metric<Name extends string> = Name;
 
 export namespace Metric {
   export function validate<const Name extends string>(

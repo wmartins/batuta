@@ -11,11 +11,11 @@ import { SQLite3Storage, type SQLite3StorageOptions } from "batuta/sqlite";
 
 const core: typeof Batuta = Batuta;
 const adapter: typeof SQLite3Storage = SQLite3Storage;
-const storage = null as Storage | null;
+const storage = null as Storage<string, string> | null;
 const options = null as SQLite3StorageOptions | null;
 
 Metric.validate("credits");
-Scope.validate({ key: "user", value: "user-1" });
+Scope.validate({ key: "user", value: "user-1" }, "scope");
 Window.validate({ amount: 1, unit: "day" });
 Quota.validate({
   metric: "credits",

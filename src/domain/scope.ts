@@ -1,4 +1,4 @@
-export type Scope<Key extends string = string> = {
+export type Scope<Key extends string> = {
   key: Key;
   value: string;
 };
@@ -6,7 +6,7 @@ export type Scope<Key extends string = string> = {
 export namespace Scope {
   export function validate<const Key extends string>(
     scope: Scope<Key>,
-    name = "scope",
+    name: string,
   ): Scope<Key> {
     if (scope.key.length === 0) {
       throw new TypeError(`${name}.key must be a non-empty string`);

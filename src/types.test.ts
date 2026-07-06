@@ -8,7 +8,7 @@ describe("configured domain types", () => {
   it("preserves literals through validation", () => {
     expectTypeOf(Metric.validate("credits")).toEqualTypeOf<"credits">();
     expectTypeOf(
-      Scope.validate({ key: "user", value: "user-123" }),
+      Scope.validate({ key: "user", value: "user-123" }, "scope"),
     ).toEqualTypeOf<Scope<"user">>();
   });
 
@@ -27,6 +27,8 @@ describe("configured domain types", () => {
     }>();
 
     if (Date.now() < 0) {
+      // @ts-expect-error validation context must be explicit
+      Scope.validate({ key: "user", value: "user-123" });
       // @ts-expect-error metrics are restricted by the client configuration
       void batuta.check({ metric: "requests", scopes: [] });
       void batuta.record({

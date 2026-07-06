@@ -6,8 +6,8 @@ import {
 } from "./domain/index.js";
 
 export class Batuta<
-  MetricName extends Metric = Metric,
-  ScopeKey extends Scope["key"] = Scope["key"],
+  MetricName extends Metric<string>,
+  ScopeKey extends Scope<string>["key"],
 > {
   readonly #storage: Storage<MetricName, ScopeKey>;
 
@@ -48,16 +48,16 @@ export class Batuta<
 
 export namespace Batuta {
   export type Options<
-    MetricName extends Metric = Metric,
-    ScopeKey extends Scope["key"] = Scope["key"],
+    MetricName extends Metric<string>,
+    ScopeKey extends Scope<string>["key"],
   > = {
     storage: Storage<MetricName, ScopeKey>;
   };
 
   export namespace Check {
     export type Input<
-      MetricName extends Metric = Metric,
-      ScopeKey extends Scope["key"] = Scope["key"],
+      MetricName extends Metric<string>,
+      ScopeKey extends Scope<string>["key"],
     > = {
       metric: MetricName;
       scopes: Scope<ScopeKey>[];
@@ -70,8 +70,8 @@ export namespace Batuta {
 
   export namespace Record {
     export type Input<
-      MetricName extends Metric = Metric,
-      ScopeKey extends Scope["key"] = Scope["key"],
+      MetricName extends Metric<string>,
+      ScopeKey extends Scope<string>["key"],
     > = {
       metric: MetricName;
       scopes: Scope<ScopeKey>[];
