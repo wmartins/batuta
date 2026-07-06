@@ -1,5 +1,11 @@
 import { DatabaseSync } from "node:sqlite";
-import { Quota, Scope, type Storage, type Usage } from "../domain/index.js";
+import {
+  type Metric,
+  Quota,
+  Scope,
+  type Storage,
+  type Usage,
+} from "../domain/index.js";
 
 export type SQLite3StorageOptions =
   | { database: DatabaseSync }
@@ -44,7 +50,11 @@ const SCHEMA = `
   ON usage (metric, scope_key, scope_value, occurred_at);
 `;
 
-export class SQLite3Storage implements Storage {
+export class SQLite3Storage<
+  MetricName extends Metric = Metric,
+  ScopeKey extends Scope["key"] = Scope["key"],
+> implements Storage<MetricName, ScopeKey>
+{
   readonly database: DatabaseSync;
 
   constructor(options: SQLite3StorageOptions) {
@@ -65,7 +75,9 @@ export class SQLite3Storage implements Storage {
     }
   }
 
-  async usage(input: Storage.Usage.Input): Promise<Storage.Usage.Result[]> {
+  async usage(
+    input: Storage.Usage.Input<MetricName, ScopeKey>,
+  ): Promise<Storage.Usage.Result<MetricName, ScopeKey>[]> {
     const values = input.scopes
       .map((_, index) => `(:scope_key_${index}, :scope_value_${index})`)
       .join(", ");
@@ -113,15 +125,15 @@ export class SQLite3Storage implements Storage {
 
     return rows.map((row) => {
       const quota = Quota.validate({
-        metric: row.quotaMetric,
-        scope: row.quotaScope,
+        metric: row.quotaMetric as MetricName,
+        scope: row.quotaScope as ScopeKey,
         limit: row.quotaLimit,
         window: { amount: row.windowAmount, unit: row.windowUnit },
       });
       return {
         quota,
         scope: Scope.validate({
-          key: row.quotaScope,
+          key: row.quotaScope as ScopeKey,
           value: row.scopeValue,
         }),
         consumed: row.consumed,
@@ -129,7 +141,9 @@ export class SQLite3Storage implements Storage {
     });
   }
 
-  async record(usages: readonly Usage.Synthetic[]): Promise<void> {
+  async record(
+    usages: readonly Usage.Synthetic<MetricName, ScopeKey>[],
+  ): Promise<void> {
     if (usages.length === 0) {
       return;
     }

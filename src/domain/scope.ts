@@ -1,10 +1,13 @@
-export type Scope = {
-  key: string;
+export type Scope<Key extends string = string> = {
+  key: Key;
   value: string;
 };
 
 export namespace Scope {
-  export function validate(scope: Scope, name = "scope"): Scope {
+  export function validate<const Key extends string>(
+    scope: Scope<Key>,
+    name = "scope",
+  ): Scope<Key> {
     if (scope.key.length === 0) {
       throw new TypeError(`${name}.key must be a non-empty string`);
     }
@@ -14,7 +17,9 @@ export namespace Scope {
     return scope;
   }
 
-  export function validateAll(scopes: readonly Scope[]): readonly Scope[] {
+  export function validateAll<const Key extends string>(
+    scopes: readonly Scope<Key>[],
+  ): readonly Scope<Key>[] {
     if (scopes.length === 0) {
       throw new TypeError("scopes must contain at least one scope");
     }

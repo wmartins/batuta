@@ -5,14 +5,19 @@ import {
   Usage,
 } from "./domain/index.js";
 
-export class Batuta {
-  readonly #storage: Storage;
+export class Batuta<
+  MetricName extends Metric = Metric,
+  ScopeKey extends Scope["key"] = Scope["key"],
+> {
+  readonly #storage: Storage<MetricName, ScopeKey>;
 
-  constructor(options: Batuta.Options) {
+  constructor(options: Batuta.Options<MetricName, ScopeKey>) {
     this.#storage = options.storage;
   }
 
-  async check(input: Batuta.Check.Input): Promise<Batuta.Check.Result> {
+  async check(
+    input: Batuta.Check.Input<MetricName, ScopeKey>,
+  ): Promise<Batuta.Check.Result> {
     const results = await this.#storage.usage({
       metric: input.metric,
       scopes: input.scopes,
@@ -24,7 +29,9 @@ export class Batuta {
     };
   }
 
-  async record(input: Batuta.Record.Input): Promise<void> {
+  async record(
+    input: Batuta.Record.Input<MetricName, ScopeKey>,
+  ): Promise<void> {
     const occurredAt = new Date();
     await this.#storage.record(
       input.scopes.map((scope) =>
@@ -40,14 +47,20 @@ export class Batuta {
 }
 
 export namespace Batuta {
-  export type Options = {
-    storage: Storage;
+  export type Options<
+    MetricName extends Metric = Metric,
+    ScopeKey extends Scope["key"] = Scope["key"],
+  > = {
+    storage: Storage<MetricName, ScopeKey>;
   };
 
   export namespace Check {
-    export type Input = {
-      metric: Metric;
-      scopes: Scope[];
+    export type Input<
+      MetricName extends Metric = Metric,
+      ScopeKey extends Scope["key"] = Scope["key"],
+    > = {
+      metric: MetricName;
+      scopes: Scope<ScopeKey>[];
     };
 
     export type Result = {
@@ -56,9 +69,12 @@ export namespace Batuta {
   }
 
   export namespace Record {
-    export type Input = {
-      metric: Metric;
-      scopes: Scope[];
+    export type Input<
+      MetricName extends Metric = Metric,
+      ScopeKey extends Scope["key"] = Scope["key"],
+    > = {
+      metric: MetricName;
+      scopes: Scope<ScopeKey>[];
       consumed: number;
     };
   }

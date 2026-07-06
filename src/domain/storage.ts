@@ -3,23 +3,36 @@ import type { Quota } from "./quota.js";
 import type { Scope } from "./scope.js";
 import type { Usage } from "./usage.js";
 
-export interface Storage {
-  usage(input: Storage.Usage.Input): Promise<Storage.Usage.Result[]>;
+export interface Storage<
+  MetricName extends Metric = Metric,
+  ScopeKey extends Scope["key"] = Scope["key"],
+> {
+  usage(
+    input: Storage.Usage.Input<MetricName, ScopeKey>,
+  ): Promise<Storage.Usage.Result<MetricName, ScopeKey>[]>;
 
-  record(usages: readonly Usage.Synthetic[]): Promise<void>;
+  record(
+    usages: readonly Usage.Synthetic<MetricName, ScopeKey>[],
+  ): Promise<void>;
 }
 
 export namespace Storage {
   export namespace Usage {
-    export type Input = {
-      metric: Metric;
-      scopes: Scope[];
+    export type Input<
+      MetricName extends Metric = Metric,
+      ScopeKey extends Scope["key"] = Scope["key"],
+    > = {
+      metric: MetricName;
+      scopes: Scope<ScopeKey>[];
       at: Date;
     };
 
-    export type Result = {
-      quota: Quota.Synthetic;
-      scope: Scope;
+    export type Result<
+      MetricName extends Metric = Metric,
+      ScopeKey extends Scope["key"] = Scope["key"],
+    > = {
+      quota: Quota.Synthetic<MetricName, ScopeKey>;
+      scope: Scope<ScopeKey>;
       consumed: number;
     };
   }

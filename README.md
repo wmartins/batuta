@@ -48,6 +48,25 @@ const scope = Scope.validate({ key: "user", value: "user-123" });
 const window = Window.validate({ amount: 14, unit: "day" });
 ```
 
+Metrics and scope keys can be narrowed to the values used by an application:
+
+```ts
+type Metric = "credits" | "tokens";
+type Scope = "user" | "company";
+
+declare const storage: Storage<Metric, Scope>;
+const batuta = new Batuta<Metric, Scope>({ storage });
+
+await batuta.check({
+  metric: "credits",
+  scopes: [{ key: "user", value: "user-123" }],
+});
+```
+
+The configured metric and scope-key unions flow through `Batuta`, `Storage`,
+`Quota.Synthetic`, and `Usage.Synthetic`. Omitting the generic arguments keeps
+the unrestricted `string` behavior.
+
 `Quota.validate()` and `Usage.validate()` do the same for their domain objects.
 Domain values do not contain persistence IDs; IDs belong to storage
 implementations.
