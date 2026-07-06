@@ -1,0 +1,37 @@
+{
+  "name": "batuta",
+  "version": "0.1.0",
+  "description": "A small, storage-backed usage quota engine.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./sqlite": {
+      "types": "./dist/sqlite/index.d.ts",
+      "import": "./dist/sqlite/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "biome check .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:imports": "node test/integration/import-smoke.mjs",
+    "typecheck": "tsc --noEmit",
+    "typecheck:imports": "tsc --noEmit -p tsconfig.smoke.json"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.2",
+    "@types/node": "^26.1.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

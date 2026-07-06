@@ -6,7 +6,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  packages/batuta:
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.5.2
