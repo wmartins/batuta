@@ -49,6 +49,14 @@ pnpm db:migrate
 pnpm db:seed
 ```
 
+Replace the example `API_KEY_PEPPER_V1` with a secret base64url value that
+decodes to at least 32 bytes. It has no development fallback and must remain
+stable for existing API keys to authenticate.
+
+```sh
+openssl rand -base64 48 | tr '+/' '-_' | tr -d '=\n'
+```
+
 The seed is idempotent. It creates the `acme` and `northstar` workspaces and
 includes two overlapping quotas for the same metric and scope.
 
@@ -124,8 +132,31 @@ routes/w.$workspaceSlug.metrics._index.tsx
 routes/w.$workspaceSlug.metrics.$metricId.tsx
 ```
 
+The managed storage data plane exposes authenticated resource routes at
+`POST /api/v1/usage/query` and `POST /api/v1/usage/events`. Its hand-written
+OpenAPI 3.1 contract lives in `openapi/openapi.yaml`; run `pnpm openapi:lint`
+after editing it.
+
+## Workspace API keys
+
+Until the management plane has user authentication and workspace roles, keys
+are managed only with self-hosted operator commands:
+
+```sh
+pnpm api-key:create -- --workspace acme --name "Local integration"
+pnpm api-key:list -- --workspace acme
+pnpm api-key:revoke -- --id <key-uuid>
+```
+
+Creation prints the complete key once. Listing never returns secret hashes or
+complete secrets. Keys grant both usage-query and usage-record access in v1.
+Usage events and idempotency batches have no automatic retention policy.
+
 ## Security boundary
 
-V1 has no authentication or authorization. Workspace IDs partition data and
-form a future authorization boundary, but they are not security isolation. Do
-not expose this version to an untrusted network.
+The runtime data plane authenticates opaque workspace API keys. The management
+application still has no user authentication or authorization, so API-key
+creation must remain operator-only. Do not expose the management plane to an
+untrusted network until workspace membership and role checks exist. Production
+also requires TLS, shared per-key/workspace rate limiting, audit visibility,
+and an explicit usage-data retention policy.

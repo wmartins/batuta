@@ -1,19 +1,34 @@
+import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
+import { createApiKeyRepository } from "../../app/data/repositories/api-key.repository.server";
 import { createMetricRepository } from "../../app/data/repositories/metric.repository.server";
 import { createQuotaRepository } from "../../app/data/repositories/quota.repository.server";
 import { createScopeRepository } from "../../app/data/repositories/scope.repository.server";
+import { createUsageRepository } from "../../app/data/repositories/usage.repository.server";
 import { createWorkspaceRepository } from "../../app/data/repositories/workspace.repository.server";
 import * as schema from "../../app/data/schema.server";
 import {
+  apiKeys,
   metrics,
   quotas,
   scopes,
+  usageBatches,
+  usageEvents,
   workspaces,
 } from "../../app/data/schema.server";
+import {
+  createApiKeyService,
+  InvalidApiKeyError,
+} from "../../app/services/api-key.server";
+import {
+  createManagedStorageService,
+  IdempotencyConflictError,
+  ManagedStorageValidationError,
+} from "../../app/services/managed-storage.server";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -31,6 +46,9 @@ const pool = new Pool({ connectionString: testDatabaseUrl });
 const database = drizzle({ client: pool, schema });
 
 beforeEach(async () => {
+  await database.delete(usageEvents);
+  await database.delete(usageBatches);
+  await database.delete(apiKeys);
   await database.delete(quotas);
   await database.delete(metrics);
   await database.delete(scopes);
@@ -310,5 +328,416 @@ describe("repository tenant boundaries", () => {
     await expect(
       repository.findActiveById(alpha.id, first.id),
     ).resolves.toBeUndefined();
+  });
+
+  test("API-key reads are tenant-scoped and list metadata never exposes hashes", async () => {
+    const [alpha, beta] = await database
+      .insert(workspaces)
+      .values([
+        { slug: "alpha", name: "Alpha" },
+        { slug: "beta", name: "Beta" },
+      ])
+      .returning();
+    const repository = createApiKeyRepository(database);
+    const createdAt = new Date("2026-07-07T12:00:00.000Z");
+    const key = await repository.create({
+      id: randomUUID(),
+      workspaceId: alpha.id,
+      name: "Local integration",
+      secretHint: "abcd",
+      secretHash: Buffer.alloc(32, 7),
+      hashVersion: 1,
+      expiresAt: null,
+      createdAt,
+    });
+
+    await expect(repository.findById(beta.id, key.id)).resolves.toBeUndefined();
+    const listed = await repository.list(alpha.id);
+    expect(listed).toEqual([
+      expect.objectContaining({
+        id: key.id,
+        workspaceId: alpha.id,
+        name: "Local integration",
+        secretHint: "abcd",
+      }),
+    ]);
+    expect(listed[0]).not.toHaveProperty("secretHash");
+  });
+
+  test("usage batches enforce workspace idempotency and allow the same opaque key in another workspace", async () => {
+    const [alpha, beta] = await database
+      .insert(workspaces)
+      .values([
+        { slug: "alpha", name: "Alpha" },
+        { slug: "beta", name: "Beta" },
+      ])
+      .returning();
+    const keyRows = await database
+      .insert(apiKeys)
+      .values(
+        [alpha, beta].map((workspace, index) => ({
+          workspaceId: workspace.id,
+          name: "Integration",
+          secretHint: `abc${index}`,
+          secretHash: Buffer.alloc(32, index + 1),
+        })),
+      )
+      .returning();
+    const occurredAt = new Date("2026-07-07T12:00:00.000Z");
+    const idempotencyKey = "same-request-key";
+
+    await database.insert(usageBatches).values([
+      {
+        workspaceId: alpha.id,
+        apiKeyId: keyRows[0].id,
+        idempotencyKey,
+        requestHash: Buffer.alloc(32, 1),
+        occurredAt,
+      },
+      {
+        workspaceId: beta.id,
+        apiKeyId: keyRows[1].id,
+        idempotencyKey,
+        requestHash: Buffer.alloc(32, 2),
+        occurredAt,
+      },
+    ]);
+
+    await expect(
+      database.insert(usageBatches).values({
+        workspaceId: alpha.id,
+        apiKeyId: keyRows[0].id,
+        idempotencyKey,
+        requestHash: Buffer.alloc(32, 3),
+        occurredAt,
+      }),
+    ).rejects.toMatchObject({ cause: { code: "23505" } });
+  });
+
+  test("usage repository rolls back the batch when one event crosses a tenant boundary", async () => {
+    const [alpha, beta] = await database
+      .insert(workspaces)
+      .values([
+        { slug: "alpha", name: "Alpha" },
+        { slug: "beta", name: "Beta" },
+      ])
+      .returning();
+    const [key] = await database
+      .insert(apiKeys)
+      .values({
+        workspaceId: alpha.id,
+        name: "Integration",
+        secretHint: "abcd",
+        secretHash: Buffer.alloc(32, 1),
+      })
+      .returning();
+    const [metric] = await database
+      .insert(metrics)
+      .values({ workspaceId: alpha.id, key: "credits", name: "Credits" })
+      .returning();
+    const [alphaScope, betaScope] = await database
+      .insert(scopes)
+      .values([
+        { workspaceId: alpha.id, key: "user", name: "User" },
+        { workspaceId: beta.id, key: "user", name: "User" },
+      ])
+      .returning();
+    const repository = createUsageRepository(database);
+
+    await expect(
+      repository.insertBatch({
+        id: randomUUID(),
+        workspaceId: alpha.id,
+        apiKeyId: key.id,
+        idempotencyKey: "atomic-request-key",
+        requestHash: Buffer.alloc(32, 4),
+        occurredAt: new Date("2026-07-07T12:00:00.000Z"),
+        events: [
+          {
+            metricId: metric.id,
+            scopeId: alphaScope.id,
+            scopeValue: "user-1",
+            consumed: 1,
+          },
+          {
+            metricId: metric.id,
+            scopeId: betaScope.id,
+            scopeValue: "user-2",
+            consumed: 1,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ cause: { code: "23503" } });
+
+    await expect(database.select().from(usageBatches)).resolves.toEqual([]);
+    await expect(database.select().from(usageEvents)).resolves.toEqual([]);
+  });
+
+  test("API-key service creates the exact opaque format and authenticates without storing the secret", async () => {
+    const [workspace] = await database
+      .insert(workspaces)
+      .values({ slug: "alpha", name: "Alpha" })
+      .returning();
+    const service = createApiKeyService({
+      database,
+      pepper: Buffer.alloc(32, 9),
+    });
+    const now = new Date("2026-07-07T12:00:00.000Z");
+    const created = await service.create({
+      workspaceId: workspace.id,
+      name: "  Local integration  ",
+      now,
+    });
+
+    expect(created.apiKey).toMatch(
+      /^batuta_live_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_[A-Za-z0-9_-]{43}$/,
+    );
+    expect(created.record.name).toBe("Local integration");
+    expect(created.record.secretHash).toHaveLength(32);
+    expect(created.apiKey).not.toContain(created.record.secretHash.toString());
+
+    await expect(
+      service.authenticate(created.apiKey, now),
+    ).resolves.toMatchObject({
+      workspace: { id: workspace.id },
+      apiKey: { id: created.record.id },
+    });
+    const [stored] = await database.select().from(apiKeys);
+    expect(stored.lastUsedAt).toEqual(now);
+  });
+
+  test("API-key service rejects altered, expired, revoked, and archived-workspace credentials", async () => {
+    const [workspace] = await database
+      .insert(workspaces)
+      .values({ slug: "alpha", name: "Alpha" })
+      .returning();
+    const service = createApiKeyService({
+      database,
+      pepper: Buffer.alloc(32, 9),
+    });
+    const createdAt = new Date("2026-07-07T12:00:00.000Z");
+    const expiresAt = new Date("2026-07-07T13:00:00.000Z");
+    const first = await service.create({
+      workspaceId: workspace.id,
+      name: "First",
+      expiresAt,
+      now: createdAt,
+    });
+    const altered = `${first.apiKey.slice(0, -1)}${first.apiKey.endsWith("a") ? "b" : "a"}`;
+    await expect(
+      service.authenticate(altered, createdAt),
+    ).rejects.toBeInstanceOf(InvalidApiKeyError);
+    await expect(
+      service.authenticate(first.apiKey, expiresAt),
+    ).rejects.toBeInstanceOf(InvalidApiKeyError);
+
+    const second = await service.create({
+      workspaceId: workspace.id,
+      name: "Second",
+      now: createdAt,
+    });
+    await service.revoke(workspace.id, second.record.id, createdAt);
+    await expect(
+      service.authenticate(second.apiKey, createdAt),
+    ).rejects.toBeInstanceOf(InvalidApiKeyError);
+
+    const third = await service.create({
+      workspaceId: workspace.id,
+      name: "Third",
+      now: createdAt,
+    });
+    await database
+      .update(workspaces)
+      .set({ deletedAt: createdAt })
+      .where(eq(workspaces.id, workspace.id));
+    await expect(
+      service.authenticate(third.apiKey, createdAt),
+    ).rejects.toBeInstanceOf(InvalidApiKeyError);
+  });
+
+  test("managed usage aggregation preserves elapsed boundaries, overlaps, zero rows, and registry validation", async () => {
+    const [workspace] = await database
+      .insert(workspaces)
+      .values({ slug: "alpha", name: "Alpha" })
+      .returning();
+    const [metric, unusedMetric] = await database
+      .insert(metrics)
+      .values([
+        { workspaceId: workspace.id, key: "credits", name: "Credits" },
+        { workspaceId: workspace.id, key: "storage", name: "Storage" },
+      ])
+      .returning();
+    const [scope] = await database
+      .insert(scopes)
+      .values({ workspaceId: workspace.id, key: "user", name: "User" })
+      .returning();
+    await database.insert(quotas).values([
+      {
+        workspaceId: workspace.id,
+        metricId: metric.id,
+        scopeId: scope.id,
+        quotaLimit: 100,
+        windowAmount: 1,
+        windowUnit: "day",
+      },
+      {
+        workspaceId: workspace.id,
+        metricId: metric.id,
+        scopeId: scope.id,
+        quotaLimit: 10,
+        windowAmount: 1,
+        windowUnit: "hour",
+      },
+    ]);
+    const [key] = await database
+      .insert(apiKeys)
+      .values({
+        workspaceId: workspace.id,
+        name: "Integration",
+        secretHint: "abcd",
+        secretHash: Buffer.alloc(32, 1),
+      })
+      .returning();
+    const evaluatedAt = new Date("2026-07-07T12:00:00.000Z");
+    const [batch] = await database
+      .insert(usageBatches)
+      .values({
+        workspaceId: workspace.id,
+        apiKeyId: key.id,
+        idempotencyKey: "aggregation-batch",
+        requestHash: Buffer.alloc(32, 2),
+        occurredAt: evaluatedAt,
+      })
+      .returning();
+    await database.insert(usageEvents).values(
+      [
+        ["2026-07-06T12:00:00.000Z", 100],
+        ["2026-07-07T10:00:00.000Z", 7],
+        ["2026-07-07T11:30:00.000Z", 3],
+        ["2026-07-07T12:00:00.000Z", 2],
+        ["2026-07-07T12:00:00.001Z", 1000],
+      ].map(([occurredAt, consumed]) => ({
+        workspaceId: workspace.id,
+        batchId: batch.id,
+        metricId: metric.id,
+        scopeId: scope.id,
+        scopeValue: "user-123",
+        consumed: Number(consumed),
+        occurredAt: new Date(String(occurredAt)),
+      })),
+    );
+    const service = createManagedStorageService(database);
+    const results = await service.query({
+      workspaceId: workspace.id,
+      metric: "credits",
+      scopes: [{ key: "user", value: "user-123" }],
+      evaluatedAt,
+    });
+    expect(results).toHaveLength(2);
+    expect(
+      results.map((result) => [result.quota.window.unit, result.consumed]),
+    ).toEqual(
+      expect.arrayContaining([
+        ["day", 12],
+        ["hour", 5],
+      ]),
+    );
+
+    await expect(
+      service.query({
+        workspaceId: workspace.id,
+        metric: unusedMetric.key,
+        scopes: [{ key: "user", value: "user-123" }],
+        evaluatedAt,
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      service.query({
+        workspaceId: workspace.id,
+        metric: "unknown",
+        scopes: [{ key: "user", value: "user-123" }],
+        evaluatedAt,
+      }),
+    ).rejects.toBeInstanceOf(ManagedStorageValidationError);
+  });
+
+  test("managed recording is atomic, active-registry constrained, and idempotent", async () => {
+    const [workspace] = await database
+      .insert(workspaces)
+      .values({ slug: "alpha", name: "Alpha" })
+      .returning();
+    await database.insert(metrics).values({
+      workspaceId: workspace.id,
+      key: "credits",
+      name: "Credits",
+    });
+    await database.insert(scopes).values({
+      workspaceId: workspace.id,
+      key: "user",
+      name: "User",
+    });
+    const [key] = await database
+      .insert(apiKeys)
+      .values({
+        workspaceId: workspace.id,
+        name: "Integration",
+        secretHint: "abcd",
+        secretHash: Buffer.alloc(32, 1),
+      })
+      .returning();
+    const service = createManagedStorageService(database);
+    const input = {
+      workspaceId: workspace.id,
+      apiKeyId: key.id,
+      idempotencyKey: "record-request-key",
+      requestHash: Buffer.alloc(32, 3),
+      occurredAt: new Date("2026-07-07T12:00:00.000Z"),
+      events: [
+        {
+          metric: "credits",
+          scope: { key: "user", value: "user-123" },
+          consumed: 2,
+        },
+        {
+          metric: "credits",
+          scope: { key: "user", value: "user-123" },
+          consumed: 2,
+        },
+      ],
+    };
+
+    await expect(service.record(input)).resolves.toMatchObject({
+      recorded: 2,
+      occurredAt: input.occurredAt,
+      replayed: false,
+    });
+    await expect(
+      service.record({ ...input, occurredAt: new Date("2027-01-01") }),
+    ).resolves.toMatchObject({
+      recorded: 2,
+      occurredAt: input.occurredAt,
+      replayed: true,
+    });
+    await expect(
+      service.record({ ...input, requestHash: Buffer.alloc(32, 4) }),
+    ).rejects.toBeInstanceOf(IdempotencyConflictError);
+    await expect(database.select().from(usageEvents)).resolves.toHaveLength(2);
+
+    await expect(
+      service.record({
+        ...input,
+        idempotencyKey: "invalid-registry-request",
+        requestHash: Buffer.alloc(32, 5),
+        events: [
+          ...input.events,
+          {
+            metric: "unknown",
+            scope: { key: "user", value: "user-123" },
+            consumed: 1,
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(ManagedStorageValidationError);
+    await expect(database.select().from(usageBatches)).resolves.toHaveLength(1);
   });
 });

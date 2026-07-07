@@ -1,0 +1,523 @@
+openapi: 3.1.0
+info:
+  title: Batuta Managed Storage API
+  version: 1.0.0
+  description: Runtime usage storage for server-side Batuta integrations.
+  license:
+    name: GPL-3.0-only
+    identifier: GPL-3.0-only
+servers:
+  - url: /
+    description: The current Batuta server deployment.
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/usage/query:
+    post:
+      operationId: queryUsage
+      summary: Query quota-window usage
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QueryUsageRequest"
+            example:
+              metric: credits
+              scopes:
+                - key: user
+                  value: user-123
+                - key: company
+                  value: company-123
+      responses:
+        "200":
+          description: Usage evaluated at one server-assigned timestamp.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueryUsageResponse"
+              example:
+                evaluatedAt: "2026-07-07T12:00:00.000Z"
+                results:
+                  - quota:
+                      metric: credits
+                      scope: user
+                      limit: 100
+                      window:
+                        amount: 1
+                        unit: day
+                    scope:
+                      key: user
+                      value: user-123
+                    consumed: 30
+        "400":
+          $ref: "#/components/responses/MalformedJson"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/usage/events:
+    post:
+      operationId: recordUsageEvents
+      summary: Record an idempotent usage-event batch
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordUsageEventsRequest"
+            example:
+              events:
+                - metric: credits
+                  scope:
+                    key: user
+                    value: user-123
+                  consumed: 10
+      responses:
+        "201":
+          description: The batch was newly recorded.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordUsageEventsResponse"
+              example:
+                batchId: 0198a3b0-b6f5-7000-8000-000000000001
+                recorded: 1
+                occurredAt: "2026-07-07T12:00:00.000Z"
+        "200":
+          description: An identical previously committed batch was replayed.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+            Idempotency-Replayed:
+              description: Always true for this response.
+              required: true
+              schema:
+                type: string
+                const: "true"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordUsageEventsResponse"
+              example:
+                batchId: 0198a3b0-b6f5-7000-8000-000000000001
+                recorded: 1
+                occurredAt: "2026-07-07T12:00:00.000Z"
+        "400":
+          $ref: "#/components/responses/MalformedJson"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/IdempotencyConflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/InvalidRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Opaque Batuta workspace API key; this is not a JWT.
+  parameters:
+    RequestId:
+      name: X-Request-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: "^[!-~]+$"
+      example: 0198a3b0-b6f5-7000-8000-000000000001
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+        pattern: "^[!-~]+$"
+      example: 0198a3b0-b6f5-7000-8000-000000000001
+  headers:
+    RequestId:
+      description: Request correlation identifier.
+      required: true
+      schema:
+        type: string
+    NoStore:
+      description: Authenticated responses are never cacheable.
+      required: true
+      schema:
+        type: string
+        const: no-store
+  schemas:
+    RegistryKey:
+      type: string
+      minLength: 1
+      maxLength: 63
+      pattern: "^[a-z][a-z0-9._-]*$"
+    Scope:
+      type: object
+      additionalProperties: false
+      required: [key, value]
+      properties:
+        key:
+          $ref: "#/components/schemas/RegistryKey"
+        value:
+          type: string
+          minLength: 1
+          maxLength: 512
+    QueryUsageRequest:
+      type: object
+      additionalProperties: false
+      required: [metric, scopes]
+      properties:
+        metric:
+          $ref: "#/components/schemas/RegistryKey"
+        scopes:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/Scope"
+    Window:
+      type: object
+      additionalProperties: false
+      required: [amount, unit]
+      properties:
+        amount:
+          type: integer
+          minimum: 1
+        unit:
+          type: string
+          enum: [minute, hour, day, week]
+    Quota:
+      type: object
+      additionalProperties: false
+      required: [metric, scope, limit, window]
+      properties:
+        metric:
+          $ref: "#/components/schemas/RegistryKey"
+        scope:
+          $ref: "#/components/schemas/RegistryKey"
+        limit:
+          type: number
+          minimum: 0
+        window:
+          $ref: "#/components/schemas/Window"
+    UsageResult:
+      type: object
+      additionalProperties: false
+      required: [quota, scope, consumed]
+      properties:
+        quota:
+          $ref: "#/components/schemas/Quota"
+        scope:
+          $ref: "#/components/schemas/Scope"
+        consumed:
+          type: number
+          minimum: 0
+    QueryUsageResponse:
+      type: object
+      additionalProperties: false
+      required: [evaluatedAt, results]
+      properties:
+        evaluatedAt:
+          type: string
+          format: date-time
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/UsageResult"
+    RecordUsageEvent:
+      type: object
+      additionalProperties: false
+      required: [metric, scope, consumed]
+      properties:
+        metric:
+          $ref: "#/components/schemas/RegistryKey"
+        scope:
+          $ref: "#/components/schemas/Scope"
+        consumed:
+          type: number
+          exclusiveMinimum: 0
+    RecordUsageEventsRequest:
+      type: object
+      additionalProperties: false
+      required: [events]
+      properties:
+        events:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/RecordUsageEvent"
+    RecordUsageEventsResponse:
+      type: object
+      additionalProperties: false
+      required: [batchId, recorded, occurredAt]
+      properties:
+        batchId:
+          type: string
+          format: uuid
+        recorded:
+          type: integer
+          minimum: 1
+          maximum: 100
+        occurredAt:
+          type: string
+          format: date-time
+    ValidationError:
+      type: object
+      additionalProperties: false
+      required: [path, code, message]
+      properties:
+        path:
+          type: string
+          description: JSON Pointer path.
+        code:
+          type: string
+        message:
+          type: string
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, instance]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        instance:
+          type: string
+          pattern: "^urn:batuta:request:.+$"
+        detail:
+          type: string
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationError"
+  responses:
+    MalformedJson:
+      description: The request body is not valid JSON.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: urn:batuta:problem:malformed-json
+            title: Malformed JSON
+            status: 400
+            instance: urn:batuta:request:req-123
+    Unauthorized:
+      description: The API key is missing, malformed, invalid, expired, or revoked, or its workspace is archived.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+        WWW-Authenticate:
+          required: true
+          schema:
+            type: string
+            const: 'Bearer realm="batuta"'
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: urn:batuta:problem:invalid-api-key
+            title: Invalid API key
+            status: 401
+            instance: urn:batuta:request:req-123
+    MethodNotAllowed:
+      description: Only POST is supported.
+      headers:
+        Allow:
+          required: true
+          schema:
+            type: string
+            const: POST
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: about:blank
+            title: Method Not Allowed
+            status: 405
+            instance: urn:batuta:request:req-123
+    IdempotencyConflict:
+      description: The idempotency key was already used with different body bytes.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: urn:batuta:problem:idempotency-conflict
+            title: Idempotency conflict
+            status: 409
+            instance: urn:batuta:request:req-123
+    PayloadTooLarge:
+      description: The request body exceeds 256 KiB.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: urn:batuta:problem:payload-too-large
+            title: Payload too large
+            status: 413
+            instance: urn:batuta:request:req-123
+    UnsupportedMediaType:
+      description: Content-Type must be application/json.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: urn:batuta:problem:unsupported-media-type
+            title: Unsupported media type
+            status: 415
+            instance: urn:batuta:request:req-123
+    InvalidRequest:
+      description: The JSON document or referenced active registry records are invalid.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: urn:batuta:problem:invalid-request
+            title: Invalid request
+            status: 422
+            instance: urn:batuta:request:req-123
+            errors:
+              - path: /metric
+                code: invalid_format
+                message: Invalid string
+    RateLimited:
+      description: A deployment-level rate limit was exceeded.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+        Retry-After:
+          schema:
+            type: string
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: urn:batuta:problem:rate-limited
+            title: Rate limited
+            status: 429
+            instance: urn:batuta:request:req-123
+    InternalError:
+      description: An unexpected internal failure occurred.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: urn:batuta:problem:internal
+            title: Internal server error
+            status: 500
+            instance: urn:batuta:request:req-123
+    ServiceUnavailable:
+      description: A recognized temporary dependency failure occurred.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+        Retry-After:
+          schema:
+            type: string
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: urn:batuta:problem:service-unavailable
+            title: Service unavailable
+            status: 503
+            instance: urn:batuta:request:req-123
