@@ -1,6 +1,7 @@
 {
   "name": "batuta",
   "version": "0.1.0",
+  "license": "GPL-3.0-only",
   "description": "A small, storage-backed usage quota engine.",
   "type": "module",
   "engines": {

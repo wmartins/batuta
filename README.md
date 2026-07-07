@@ -58,3 +58,9 @@ pnpm --filter @batuta/server test
 
 See the [server README](apps/server/README.md) for PostgreSQL setup, migrations,
 seed data, and development or production commands.
+
+## License
+
+Copyright © 2026 William Martins.
+
+Batuta is licensed under the [GNU General Public License version 3 only](LICENSE).

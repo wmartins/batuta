@@ -1,6 +1,7 @@
 {
   "name": "@batuta/server",
   "private": true,
+  "license": "GPL-3.0-only",
   "type": "module",
   "engines": {
     "node": ">=22.22.0"
