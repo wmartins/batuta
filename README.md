@@ -23,8 +23,6 @@ applications.
   TypeScript library and SQLite adapter.
 - [`apps/server`](apps/server/README.md) contains the server-rendered management
   application.
-- `docs` contains the [workspace migration plan](docs/pnpm-workspace-plan.md) and
-  [server plan](docs/server-plan.md).
 
 ## Development
 
