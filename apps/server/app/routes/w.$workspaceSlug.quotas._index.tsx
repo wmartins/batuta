@@ -76,58 +76,62 @@ function QuotaFilters({
 
   return (
     <Form method="get">
-      <HStack gap={3} align="end">
-        <Selector
-          label="Metric"
-          options={metricOptions}
-          value={metricId}
-          onChange={(value) => setMetricId(value ?? "")}
-          placeholder="All metrics"
-          hasClear
-          hasSearch={metricOptions.length > 8}
-          searchPlaceholder="Search metrics"
-        />
-        <Selector
-          label="Scope"
-          options={scopeOptions}
-          value={scopeId}
-          onChange={(value) => setScopeId(value ?? "")}
-          placeholder="All scopes"
-          hasClear
-          hasSearch={scopeOptions.length > 8}
-          searchPlaceholder="Search scopes"
-        />
-        <noscript>
-          <label>
-            Metric
-            <select name="metric" defaultValue={query.metricId}>
-              <option value="">All metrics</option>
-              {metricOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Scope
-            <select name="scope" defaultValue={query.scopeId}>
-              <option value="">All scopes</option>
-              {scopeOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </noscript>
-        <input type="hidden" name="metric" value={metricId} />
-        <input type="hidden" name="scope" value={scopeId} />
-        <input type="hidden" name="sort" value={query.sort} />
-        <input type="hidden" name="direction" value={query.direction} />
-        <Button type="submit" variant="secondary" label="Apply filters" />
-        <Button href="new" label="Create quota" variant="primary" />
-      </HStack>
+      <VStack gap={5}>
+        <HStack>
+          <Button href="new" label="Create quota" variant="primary" />
+        </HStack>
+        <HStack gap={3} align="end">
+          <Selector
+            label="Metric"
+            options={metricOptions}
+            value={metricId}
+            onChange={(value) => setMetricId(value ?? "")}
+            placeholder="All metrics"
+            hasClear
+            hasSearch={metricOptions.length > 8}
+            searchPlaceholder="Search metrics"
+          />
+          <Selector
+            label="Scope"
+            options={scopeOptions}
+            value={scopeId}
+            onChange={(value) => setScopeId(value ?? "")}
+            placeholder="All scopes"
+            hasClear
+            hasSearch={scopeOptions.length > 8}
+            searchPlaceholder="Search scopes"
+          />
+          <noscript>
+            <label>
+              Metric
+              <select name="metric" defaultValue={query.metricId}>
+                <option value="">All metrics</option>
+                {metricOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Scope
+              <select name="scope" defaultValue={query.scopeId}>
+                <option value="">All scopes</option>
+                {scopeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </noscript>
+          <input type="hidden" name="metric" value={metricId} />
+          <input type="hidden" name="scope" value={scopeId} />
+          <input type="hidden" name="sort" value={query.sort} />
+          <input type="hidden" name="direction" value={query.direction} />
+          <Button type="submit" variant="secondary" label="Apply filters" />
+        </HStack>
+      </VStack>
     </Form>
   );
 }

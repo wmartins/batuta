@@ -65,6 +65,9 @@ export default function ScopeEdit({
         </Banner>
       ) : null}
       <VStack gap={1}>
+        <HStack>
+          <Link href="..">Back to scopes</Link>
+        </HStack>
         <Heading level={1}>{loaderData.scope.name}</Heading>
         <Text type="large" color="secondary">
           Applications provide values such as{" "}
@@ -112,9 +115,6 @@ export default function ScopeEdit({
           />
         </Form>
       </VStack>
-      <HStack>
-        <Button href=".." label="Back to scopes" variant="secondary" />
-      </HStack>
     </VStack>
   );
 }

@@ -65,6 +65,9 @@ export default function MetricEdit({
         </Banner>
       ) : null}
       <VStack gap={1}>
+        <HStack>
+          <Link href="..">Back to metrics</Link>
+        </HStack>
         <Heading level={1}>{loaderData.metric.name}</Heading>
         <Text type="large" color="secondary">
           Edit display details for{" "}
@@ -114,9 +117,6 @@ export default function MetricEdit({
           />
         </Form>
       </VStack>
-      <HStack>
-        <Button href=".." label="Back to metrics" variant="secondary" />
-      </HStack>
     </VStack>
   );
 }

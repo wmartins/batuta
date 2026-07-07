@@ -71,6 +71,9 @@ export function RegistryListPage({
           {description}
         </Text>
       </VStack>
+      <HStack>
+        <Button href="new" label={`Create ${kind}`} variant="primary" />
+      </HStack>
       <HStack gap={3} align="end">
         <Form method="get">
           <HStack gap={2} align="end">
@@ -86,7 +89,6 @@ export function RegistryListPage({
             <Button type="submit" variant="secondary" label="Search" />
           </HStack>
         </Form>
-        <Button href="new" label={`Create ${kind}`} variant="primary" />
       </HStack>
       <HStack gap={3}>
         <Text type="supporting" color="secondary">

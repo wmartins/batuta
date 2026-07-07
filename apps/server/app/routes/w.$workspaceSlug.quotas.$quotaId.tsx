@@ -1,10 +1,10 @@
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
+import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Heading, Text } from "@astryxdesign/core/Text";
 import { data, Form, redirect, useNavigation } from "react-router";
-
 import { QuotaForm } from "~/components/quota-form";
 import { listActiveMetrics } from "~/services/metric.server";
 import {
@@ -16,7 +16,6 @@ import {
 import { listActiveScopes } from "~/services/scope.server";
 import { requireActiveWorkspace } from "~/services/workspace.server";
 import { readQuotaForm } from "~/validation/quota";
-
 import type { Route } from "./+types/w.$workspaceSlug.quotas.$quotaId";
 
 export async function loader({ params, request }: Route.LoaderArgs) {
@@ -94,6 +93,9 @@ export default function QuotaEdit({
         </Banner>
       ) : null}
       <VStack gap={1}>
+        <HStack>
+          <Link href="..">Back to quotas</Link>
+        </HStack>
         <Heading level={1}>Edit quota</Heading>
         <Text type="large" color="secondary">
           All quota configuration fields can be changed.
@@ -134,9 +136,6 @@ export default function QuotaEdit({
           />
         </Form>
       </VStack>
-      <HStack>
-        <Button href=".." label="Back to quotas" variant="secondary" />
-      </HStack>
     </VStack>
   );
 }
