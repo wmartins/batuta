@@ -1,0 +1,116 @@
+import "dotenv/config";
+
+import { db, pool } from "../app/data/db.server";
+import { metrics, quotas, scopes, workspaces } from "../app/data/schema.server";
+
+const ids = {
+  workspaceAlpha: "00000000-0000-4000-8000-000000000001",
+  workspaceBeta: "00000000-0000-4000-8000-000000000002",
+  metricCredits: "00000000-0000-4000-8000-000000000101",
+  metricTokens: "00000000-0000-4000-8000-000000000102",
+  metricJobs: "00000000-0000-4000-8000-000000000103",
+  scopeUser: "00000000-0000-4000-8000-000000000201",
+  scopeCompany: "00000000-0000-4000-8000-000000000202",
+  scopeTeam: "00000000-0000-4000-8000-000000000203",
+  quotaDailyCredits: "00000000-0000-4000-8000-000000000301",
+  quotaWeeklyCredits: "00000000-0000-4000-8000-000000000302",
+  quotaHourlyJobs: "00000000-0000-4000-8000-000000000303",
+} as const;
+
+async function seed() {
+  await db
+    .insert(workspaces)
+    .values([
+      { id: ids.workspaceAlpha, slug: "acme", name: "Acme" },
+      { id: ids.workspaceBeta, slug: "northstar", name: "Northstar" },
+    ])
+    .onConflictDoNothing();
+
+  await db
+    .insert(metrics)
+    .values([
+      {
+        id: ids.metricCredits,
+        workspaceId: ids.workspaceAlpha,
+        key: "credits",
+        name: "Credits",
+      },
+      {
+        id: ids.metricTokens,
+        workspaceId: ids.workspaceAlpha,
+        key: "tokens",
+        name: "Tokens",
+      },
+      {
+        id: ids.metricJobs,
+        workspaceId: ids.workspaceBeta,
+        key: "jobs",
+        name: "Jobs",
+      },
+    ])
+    .onConflictDoNothing();
+
+  await db
+    .insert(scopes)
+    .values([
+      {
+        id: ids.scopeUser,
+        workspaceId: ids.workspaceAlpha,
+        key: "user",
+        name: "User",
+      },
+      {
+        id: ids.scopeCompany,
+        workspaceId: ids.workspaceAlpha,
+        key: "company",
+        name: "Company",
+      },
+      {
+        id: ids.scopeTeam,
+        workspaceId: ids.workspaceBeta,
+        key: "team",
+        name: "Team",
+      },
+    ])
+    .onConflictDoNothing();
+
+  await db
+    .insert(quotas)
+    .values([
+      {
+        id: ids.quotaDailyCredits,
+        workspaceId: ids.workspaceAlpha,
+        metricId: ids.metricCredits,
+        scopeId: ids.scopeUser,
+        quotaLimit: 100,
+        windowAmount: 1,
+        windowUnit: "day",
+      },
+      {
+        id: ids.quotaWeeklyCredits,
+        workspaceId: ids.workspaceAlpha,
+        metricId: ids.metricCredits,
+        scopeId: ids.scopeUser,
+        quotaLimit: 500,
+        windowAmount: 1,
+        windowUnit: "week",
+      },
+      {
+        id: ids.quotaHourlyJobs,
+        workspaceId: ids.workspaceBeta,
+        metricId: ids.metricJobs,
+        scopeId: ids.scopeTeam,
+        quotaLimit: 20,
+        windowAmount: 1,
+        windowUnit: "hour",
+      },
+    ])
+    .onConflictDoNothing();
+}
+
+try {
+  await seed();
+  console.info("Development data seeded.");
+} finally {
+  await pool.end();
+}

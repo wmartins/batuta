@@ -1,5 +1,11 @@
 dist/
+build/
+.react-router/
 node_modules/
+.pnpm-store/
+.env
+.env.*
+!.env.example
 *.db
 *.db-shm
 *.db-wal

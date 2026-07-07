@@ -21,8 +21,8 @@ applications.
 
 - `packages/batuta` contains the publishable [`batuta`](packages/batuta/README.md)
   TypeScript library and SQLite adapter.
-- `apps` is reserved for application packages, including the planned Batuta
-  server.
+- [`apps/server`](apps/server/README.md) contains the server-rendered management
+  application.
 - `docs` contains the [workspace migration plan](docs/pnpm-workspace-plan.md) and
   [server plan](docs/server-plan.md).
 
@@ -49,3 +49,14 @@ You can also address the library directly with pnpm's workspace filter:
 pnpm --filter batuta test
 pnpm --filter batuta build
 ```
+
+Application-specific scripts live in their package. Run server commands from
+`apps/server`, or address the package explicitly from the repository root:
+
+```sh
+pnpm --filter @batuta/server dev
+pnpm --filter @batuta/server test
+```
+
+See the [server README](apps/server/README.md) for PostgreSQL setup, migrations,
+seed data, and development or production commands.
