@@ -23,6 +23,8 @@ applications.
   TypeScript library and SQLite adapter.
 - [`apps/server`](apps/server/README.md) contains the server-rendered management
   application.
+- [`apps/demo`](apps/demo/README.md) demonstrates managed user and team quotas
+  through the public Batuta packages and HTTP API.
 
 ## Development
 
@@ -58,6 +60,17 @@ pnpm --filter @batuta/server test
 
 See the [server README](apps/server/README.md) for PostgreSQL setup, migrations,
 seed data, and development or production commands.
+
+To run the managed-storage demo after configuring and migrating the server:
+
+```sh
+corepack pnpm --filter @batuta/demo setup
+corepack pnpm --filter @batuta/server dev
+corepack pnpm --filter @batuta/demo dev
+```
+
+See the [demo README](apps/demo/README.md) for the complete local runbook and
+quota-isolation walkthrough.
 
 ## License
 

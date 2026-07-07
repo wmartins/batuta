@@ -1,0 +1,13 @@
+@import "@astryxdesign/core/reset.css";
+@import "@astryxdesign/core/astryx.css";
+@import "@astryxdesign/theme-neutral/theme.css";
+
+body {
+  background: var(--color-background-body);
+}
+
+.demo-content {
+  width: 100%;
+  max-width: 960px;
+  margin-inline: auto;
+}
