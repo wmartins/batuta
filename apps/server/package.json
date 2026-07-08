@@ -20,7 +20,7 @@
     "openapi:lint": "redocly lint openapi/openapi.yaml",
     "start": "react-router-serve ./build/server/index.js",
     "test": "vitest run",
-    "test:blackbox": "react-router build && corepack pnpm --filter @batuta/remote build && tsx scripts/test-runtime-api.ts",
+    "test:blackbox": "react-router build && corepack pnpm --filter @batuta/remote run build && tsx scripts/test-runtime-api.ts",
     "typecheck": "react-router typegen && tsc"
   },
   "dependencies": {

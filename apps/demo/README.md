@@ -14,30 +14,31 @@ docker compose up -d --wait postgres
 cp apps/server/.env.example apps/server/.env
 # Set API_KEY_PEPPER_V1 in apps/server/.env to a new base64url secret of at least 32 bytes.
 corepack pnpm install
-corepack pnpm --filter @batuta/server db:migrate
-corepack pnpm --filter @batuta/demo setup
-corepack pnpm --filter @batuta/server dev
+corepack pnpm --filter @batuta/server run db:migrate
+corepack pnpm --filter @batuta/server run db:seed
+corepack pnpm --filter @batuta/demo run setup
+corepack pnpm --filter @batuta/server run dev
 ```
 
 In another terminal:
 
 ```sh
-corepack pnpm --filter @batuta/demo dev
+corepack pnpm --filter @batuta/demo run dev
 ```
 
 Open <http://localhost:5174>. The managed server listens on
 <http://localhost:5173> by default.
 
-The setup command owns the `creative-demo` workspace, `credits` metric, user
-and team scopes, one-minute quotas, and a dedicated API key. It writes only the
-managed URL and complete key to the gitignored `apps/demo/.env`; it never prints
-the key. Rerunning setup retains a valid stored key and converges the same
-setup-owned records.
+The server seed owns the `creative-demo` workspace, `credits` metric, user and
+team scopes, and one-minute quotas. The demo setup command only provisions a
+dedicated API key and writes the managed URL and complete key to the gitignored
+`apps/demo/.env`; it never prints the key. Rerunning setup retains a valid
+stored key.
 
 To use another managed API URL:
 
 ```sh
-corepack pnpm --filter @batuta/demo setup -- --batuta-url http://localhost:3000
+corepack pnpm --filter @batuta/demo run setup -- --batuta-url http://localhost:3000
 ```
 
 ## Walkthrough
@@ -60,9 +61,10 @@ does not claim to reserve credits or eliminate concurrent races.
 
 - **Missing server configuration:** copy `apps/server/.env.example`, then set a
   real `API_KEY_PEPPER_V1` and confirm `DATABASE_URL` is reachable.
-- **Missing tables:** run `corepack pnpm --filter @batuta/server db:migrate`.
+- **Missing tables:** run `corepack pnpm --filter @batuta/server run db:migrate`.
+- **Missing demo quotas:** run `corepack pnpm --filter @batuta/server run db:seed`.
 - **Server unavailable:** start `@batuta/server` and check the URL stored in
   `apps/demo/.env`.
-- **Invalid or revoked key:** rerun `corepack pnpm --filter @batuta/demo setup`.
+- **Invalid or revoked key:** rerun `corepack pnpm --filter @batuta/demo run setup`.
 - **Quota still exhausted:** usage expires event by event; allow the rolling
   minute to drain while the page refreshes automatically.

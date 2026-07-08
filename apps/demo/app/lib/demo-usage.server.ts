@@ -64,7 +64,7 @@ function safeFailure(error: unknown): OperationResult {
     return {
       status: "error",
       message:
-        "The managed API rejected the request. Check the demo setup and try again.",
+        "The managed API rejected the request. Rerun the server seed and demo credential setup, then try again.",
       ...(error.requestId ? { requestId: error.requestId } : {}),
     };
   }

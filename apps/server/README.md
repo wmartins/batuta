@@ -57,8 +57,10 @@ stable for existing API keys to authenticate.
 openssl rand -base64 48 | tr '+/' '-_' | tr -d '=\n'
 ```
 
-The seed is idempotent. It creates the `acme` and `northstar` workspaces and
-includes two overlapping quotas for the same metric and scope.
+The seed is idempotent. It creates the `acme` and `northstar` management
+examples, including two overlapping quotas for the same metric and scope. It
+also creates the `creative-demo` workspace and its 12-credit user and 30-credit
+team quotas used by [`apps/demo`](../demo/README.md).
 
 Start the development server:
 

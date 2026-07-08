@@ -63,7 +63,7 @@ export function deriveActorUsage(
 
   if (userResults.length === 0 || teamResults.length === 0) {
     throw new DemoConfigurationError(
-      "The managed demo requires active user and team quotas. Run the demo setup command.",
+      "The managed demo requires active user and team quotas. Run the server database seed.",
     );
   }
 

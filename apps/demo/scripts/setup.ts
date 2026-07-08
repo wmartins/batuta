@@ -55,22 +55,34 @@ async function main() {
   const batutaUrl = readBatutaUrl(process.argv.slice(2));
   await loadServerEnvironment();
 
-  const { createDemoSetupAdapter } = await import(
-    "../../server/scripts/demo-setup-adapter"
-  );
-  const { dependencies, close } = createDemoSetupAdapter(
-    Buffer.from(process.env.API_KEY_PEPPER_V1 ?? "", "base64url"),
-  );
+  const [{ db, pool }, { ApiKeyNotFoundError, createApiKeyService }] =
+    await Promise.all([
+      import("../../server/app/data/db.server"),
+      import("../../server/app/services/api-key.server"),
+    ]);
+  const apiKeys = createApiKeyService({
+    database: db,
+    pepper: Buffer.from(process.env.API_KEY_PEPPER_V1 ?? "", "base64url"),
+  });
 
   try {
-    await runSetup({
-      dependencies,
-      envPath: demoEnvPath,
-      batutaUrl,
-      stdout: process.stdout,
-    });
+    try {
+      await runSetup({
+        dependencies: { apiKeys },
+        envPath: demoEnvPath,
+        batutaUrl,
+        stdout: process.stdout,
+      });
+    } catch (error) {
+      if (error instanceof ApiKeyNotFoundError) {
+        throw new Error(
+          "The seeded demo workspace was not found. Run corepack pnpm --filter @batuta/server run db:seed first.",
+        );
+      }
+      throw error;
+    }
   } finally {
-    await close();
+    await pool.end();
   }
 }
 

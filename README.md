@@ -64,9 +64,10 @@ seed data, and development or production commands.
 To run the managed-storage demo after configuring and migrating the server:
 
 ```sh
-corepack pnpm --filter @batuta/demo setup
-corepack pnpm --filter @batuta/server dev
-corepack pnpm --filter @batuta/demo dev
+corepack pnpm --filter @batuta/server run db:seed
+corepack pnpm --filter @batuta/demo run setup
+corepack pnpm --filter @batuta/server run dev
+corepack pnpm --filter @batuta/demo run dev
 ```
 
 See the [demo README](apps/demo/README.md) for the complete local runbook and
