@@ -73,7 +73,7 @@ export default function DemoIndex({ loaderData }: Route.ComponentProps) {
   return (
     <AppShell
       height="auto"
-      variant="section"
+      variant="elevated"
       contentPadding={0}
       topNav={
         <TopNav
