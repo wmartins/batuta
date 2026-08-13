@@ -1,9 +1,4 @@
-import {
-  type Metric,
-  type Scope,
-  type Storage,
-  Usage,
-} from "./domain/index.js";
+import { Metric, Scope, type Storage, Usage } from "./domain/index.js";
 
 export class Batuta<
   MetricName extends Metric<string>,
@@ -18,6 +13,11 @@ export class Batuta<
   async check(
     input: Batuta.Check.Input<MetricName, ScopeKey>,
   ): Promise<Batuta.Check.Result> {
+    Metric.validate(input.metric);
+    Scope.validateAll(input.scopes);
+    if (!Number.isFinite(input.amount) || input.amount < 0) {
+      throw new TypeError("amount must be finite and non-negative");
+    }
     const results = await this.#storage.usage({
       metric: input.metric,
       scopes: input.scopes,
@@ -25,20 +25,27 @@ export class Batuta<
     });
 
     return {
-      exceeded: results.some(({ quota, consumed }) => consumed >= quota.limit),
+      exceeded: results.some((result) => {
+        if (result.quota.limit === "unlimited") return false;
+        const projected =
+          "used" in result ? result.used + input.amount : input.amount;
+        return projected > result.quota.limit;
+      }),
     };
   }
 
   async record(
     input: Batuta.Record.Input<MetricName, ScopeKey>,
   ): Promise<void> {
+    Metric.validate(input.metric);
+    Scope.validateAll(input.scopes);
     const occurredAt = new Date();
     await this.#storage.record(
       input.scopes.map((scope) =>
         Usage.validate({
           metric: input.metric,
           scope,
-          consumed: input.consumed,
+          amount: input.amount,
           occurredAt,
         }),
       ),
@@ -61,6 +68,7 @@ export namespace Batuta {
     > = {
       metric: MetricName;
       scopes: Scope<ScopeKey>[];
+      amount: number;
     };
 
     export type Result = {
@@ -75,7 +83,7 @@ export namespace Batuta {
     > = {
       metric: MetricName;
       scopes: Scope<ScopeKey>[];
-      consumed: number;
+      amount: number;
     };
   }
 }

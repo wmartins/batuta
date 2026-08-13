@@ -83,7 +83,7 @@ describe("BatutaClient", () => {
         {
           metric: "credits",
           scope: { key: "user", value: "user-1" },
-          consumed: 1,
+          amount: 1,
         },
       ]),
     ).resolves.toMatchObject({ recorded: 1, replayed: false });

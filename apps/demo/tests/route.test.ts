@@ -4,32 +4,20 @@ const mocks = vi.hoisted(() => ({
   getActorUsage: vi.fn(async () => ({
     evaluatedAt: "2026-07-07T12:00:00.000Z",
     usage: {
-      user: {
-        key: "user" as const,
-        value: "paper-plane-labs:ina-costa",
-        quotas: [
-          {
-            limit: 12,
-            consumed: 0,
-            remaining: 12,
-            percentage: 0,
-            window: { amount: 1, unit: "minute" as const },
-          },
-        ],
+      credits: {
+        user: {
+          limit: 12,
+          used: 0,
+          window: { amount: 1, unit: "minute" as const },
+        },
+        team: {
+          limit: 30,
+          used: 0,
+          window: { amount: 1, unit: "minute" as const },
+        },
       },
-      team: {
-        key: "team" as const,
-        value: "paper-plane-labs",
-        quotas: [
-          {
-            limit: 30,
-            consumed: 0,
-            remaining: 30,
-            percentage: 0,
-            window: { amount: 1, unit: "minute" as const },
-          },
-        ],
-      },
+      campaigns: { limit: 2, used: 0 },
+      brief: { limit: 4_000, isConcreteOverride: false },
     },
   })),
 }));

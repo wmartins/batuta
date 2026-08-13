@@ -149,8 +149,8 @@ export default function QuotasList({ loaderData }: Route.ComponentProps) {
       <VStack gap={1}>
         <Heading level={1}>Quotas</Heading>
         <Text type="large" color="secondary">
-          Every matching quota is evaluated, so overlapping definitions are
-          supported.
+          Concrete metric configurations replace generic defaults. Rolling
+          quotas may define several distinct windows.
         </Text>
       </VStack>
       <QuotaFilters metrics={metrics} query={query} scopes={scopes} />
@@ -191,10 +191,11 @@ export default function QuotasList({ loaderData }: Route.ComponentProps) {
               key={item.id}
               href={item.id}
               label={`${item.metric.name} · ${item.scope.name}`}
-              description={`${item.quotaLimit} per ${item.windowAmount} ${item.windowUnit}${item.windowAmount === 1 ? "" : "s"}`}
+              description={`${item.type} · ${item.quotaLimit ?? "unlimited"}${item.type === "rolling" ? ` per ${item.windowAmount} ${item.windowUnit}${item.windowAmount === 1 ? "" : "s"}` : ""}`}
               endContent={
                 <Text type="code">
                   {item.metric.key} / {item.scope.key}
+                  {item.scopeValue ? `:${item.scopeValue}` : ":*"}
                 </Text>
               }
             />

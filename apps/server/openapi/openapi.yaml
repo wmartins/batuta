@@ -15,7 +15,7 @@ paths:
   /api/v1/usage/query:
     post:
       operationId: queryUsage
-      summary: Query quota-window usage
+      summary: Query effective quota usage
       parameters:
         - $ref: "#/components/parameters/RequestId"
       requestBody:
@@ -47,6 +47,7 @@ paths:
                 evaluatedAt: "2026-07-07T12:00:00.000Z"
                 results:
                   - quota:
+                      type: rolling
                       metric: credits
                       scope: user
                       limit: 100
@@ -56,7 +57,7 @@ paths:
                     scope:
                       key: user
                       value: user-123
-                    consumed: 30
+                    used: 30
         "400":
           $ref: "#/components/responses/MalformedJson"
         "401":
@@ -94,7 +95,7 @@ paths:
                   scope:
                     key: user
                     value: user-123
-                  consumed: 10
+                  amount: 10
       responses:
         "201":
           description: The batch was newly recorded.
@@ -232,32 +233,86 @@ components:
         unit:
           type: string
           enum: [minute, hour, day, week]
-    Quota:
+    Limit:
+      oneOf:
+        - type: number
+          minimum: 0
+        - type: string
+          const: unlimited
+    QuotaSelector:
+      oneOf:
+        - $ref: "#/components/schemas/RegistryKey"
+        - $ref: "#/components/schemas/Scope"
+    DirectQuota:
       type: object
       additionalProperties: false
-      required: [metric, scope, limit, window]
+      required: [type, metric, scope, limit]
       properties:
+        type:
+          type: string
+          const: direct
         metric:
           $ref: "#/components/schemas/RegistryKey"
         scope:
-          $ref: "#/components/schemas/RegistryKey"
+          $ref: "#/components/schemas/QuotaSelector"
         limit:
-          type: number
-          minimum: 0
-        window:
-          $ref: "#/components/schemas/Window"
-    UsageResult:
+          $ref: "#/components/schemas/Limit"
+    BalanceQuota:
       type: object
       additionalProperties: false
-      required: [quota, scope, consumed]
+      required: [type, metric, scope, limit]
+      properties:
+        type:
+          type: string
+          const: balance
+        metric:
+          $ref: "#/components/schemas/RegistryKey"
+        scope:
+          $ref: "#/components/schemas/QuotaSelector"
+        limit:
+          $ref: "#/components/schemas/Limit"
+    RollingQuota:
+      type: object
+      additionalProperties: false
+      required: [type, metric, scope, limit, window]
+      properties:
+        type:
+          type: string
+          const: rolling
+        metric:
+          $ref: "#/components/schemas/RegistryKey"
+        scope:
+          $ref: "#/components/schemas/QuotaSelector"
+        limit:
+          $ref: "#/components/schemas/Limit"
+        window:
+          $ref: "#/components/schemas/Window"
+    DirectUsageResult:
+      type: object
+      additionalProperties: false
+      required: [quota, scope]
       properties:
         quota:
-          $ref: "#/components/schemas/Quota"
+          $ref: "#/components/schemas/DirectQuota"
         scope:
           $ref: "#/components/schemas/Scope"
-        consumed:
+    AccumulatedUsageResult:
+      type: object
+      additionalProperties: false
+      required: [quota, scope, used]
+      properties:
+        quota:
+          oneOf:
+            - $ref: "#/components/schemas/BalanceQuota"
+            - $ref: "#/components/schemas/RollingQuota"
+        scope:
+          $ref: "#/components/schemas/Scope"
+        used:
           type: number
-          minimum: 0
+    UsageResult:
+      oneOf:
+        - $ref: "#/components/schemas/DirectUsageResult"
+        - $ref: "#/components/schemas/AccumulatedUsageResult"
     QueryUsageResponse:
       type: object
       additionalProperties: false
@@ -273,15 +328,18 @@ components:
     RecordUsageEvent:
       type: object
       additionalProperties: false
-      required: [metric, scope, consumed]
+      required: [metric, scope, amount]
       properties:
         metric:
           $ref: "#/components/schemas/RegistryKey"
         scope:
           $ref: "#/components/schemas/Scope"
-        consumed:
-          type: number
-          exclusiveMinimum: 0
+        amount:
+          oneOf:
+            - type: number
+              exclusiveMaximum: 0
+            - type: number
+              exclusiveMinimum: 0
     RecordUsageEventsRequest:
       type: object
       additionalProperties: false

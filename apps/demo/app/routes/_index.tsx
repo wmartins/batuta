@@ -77,8 +77,8 @@ export default function DemoIndex({ loaderData }: Route.ComponentProps) {
       contentPadding={0}
       topNav={
         <TopNav
-          label="Creative credits"
-          heading={<TopNavHeading heading="Lumen Creative Credits" />}
+          label="Creative operations"
+          heading={<TopNavHeading heading="Lumen Creative Studio" />}
         />
       }
     >
@@ -88,10 +88,10 @@ export default function DemoIndex({ loaderData }: Route.ComponentProps) {
             <Text type="supporting" color="accent" weight="bold">
               MANAGED STORAGE DEMO
             </Text>
-            <Heading level={1}>Make quota isolation visible</Heading>
+            <Heading level={1}>Conduct every kind of quota</Heading>
             <Text type="large" color="secondary">
-              Run studio operations that spend credits through Batuta’s managed
-              API.
+              Launch creative work through rolling credits, active balances,
+              direct brief limits, and a concrete creator override.
             </Text>
           </VStack>
 
@@ -121,7 +121,7 @@ export default function DemoIndex({ loaderData }: Route.ComponentProps) {
                 feedback.status === "blocked"
                   ? "Operation blocked"
                   : feedback.status === "success"
-                    ? "Credits recorded"
+                    ? "Operation completed"
                     : "Operation failed"
               }
               description={feedback.message}
@@ -144,7 +144,8 @@ export default function DemoIndex({ loaderData }: Route.ComponentProps) {
 
           <VStack gap={1}>
             <Text type="supporting" color="secondary">
-              Usage refreshes about every two seconds. Last evaluated:{" "}
+              Accumulated usage refreshes about every two seconds. Last
+              evaluated:{" "}
               {loaderData.evaluatedAt
                 ? new Date(loaderData.evaluatedAt).toLocaleTimeString()
                 : "unavailable"}

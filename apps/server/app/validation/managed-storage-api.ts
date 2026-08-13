@@ -38,7 +38,7 @@ export const recordUsageEventsRequestSchema = z
           .object({
             metric: registryKey,
             scope,
-            consumed: z.number().positive(),
+            amount: z.number().refine((value) => value !== 0),
           })
           .strict(),
       )

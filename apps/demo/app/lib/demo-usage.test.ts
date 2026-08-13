@@ -2,73 +2,82 @@ import type { Storage } from "batuta";
 import { describe, expect, it } from "vitest";
 
 import {
-  blockersForCost,
   DemoConfigurationError,
+  type DemoMetric,
   type DemoScopeKey,
   deriveActorUsage,
 } from "./demo-usage";
 
-function result(
-  key: DemoScopeKey,
-  value: string,
-  consumed: number,
-  limit: number,
-): Storage.Usage.Result<"credits", DemoScopeKey> {
-  return {
-    scope: { key, value },
-    consumed,
-    quota: {
-      metric: "credits",
-      scope: key,
-      limit,
-      window: { amount: 1, unit: "minute" },
+type Result = Storage.Usage.Result<DemoMetric, DemoScopeKey>;
+
+function results(concreteBrief = false): Result[] {
+  return [
+    {
+      scope: { key: "team", value: "lumen" },
+      used: 20,
+      quota: {
+        type: "rolling",
+        metric: "credits",
+        scope: "team",
+        limit: 30,
+        window: { amount: 1, unit: "minute" },
+      },
     },
-  };
+    {
+      scope: { key: "user", value: "maya" },
+      used: 4,
+      quota: {
+        type: "rolling",
+        metric: "credits",
+        scope: "user",
+        limit: 12,
+        window: { amount: 1, unit: "minute" },
+      },
+    },
+    {
+      scope: { key: "user", value: "maya" },
+      used: 1,
+      quota: {
+        type: "balance",
+        metric: "campaigns.active",
+        scope: "user",
+        limit: 2,
+      },
+    },
+    {
+      scope: { key: "user", value: "maya" },
+      quota: {
+        type: "direct",
+        metric: "brief.characters",
+        scope: concreteBrief ? { key: "user", value: "maya" } : "user",
+        limit: concreteBrief ? 8_000 : 4_000,
+      },
+    },
+  ];
 }
 
 describe("demo usage derivation", () => {
-  it("maps user and team quotas independent of response ordering", () => {
-    const usage = deriveActorUsage(
-      [result("team", "lumen", 20, 30), result("user", "maya", 4, 12)],
-      { user: "maya", team: "lumen" },
-    );
-    expect(usage.user.quotas[0].remaining).toBe(8);
-    expect(usage.team.quotas[0].remaining).toBe(10);
-  });
-
-  it("clamps remaining credits and rendered percentages", () => {
-    const usage = deriveActorUsage(
-      [result("user", "maya", 14, 12), result("team", "lumen", 35, 30)],
-      { user: "maya", team: "lumen" },
-    );
-    expect(usage.user.quotas[0]).toMatchObject({
-      remaining: 0,
-      percentage: 100,
+  it("maps all three kinds independent of response ordering", () => {
+    const usage = deriveActorUsage(results(true).reverse(), {
+      user: "maya",
+      team: "lumen",
     });
-    expect(usage.team.quotas[0]).toMatchObject({
-      remaining: 0,
-      percentage: 100,
+    expect(usage).toMatchObject({
+      credits: { user: { used: 4 }, team: { used: 20 } },
+      campaigns: { used: 1, limit: 2 },
+      brief: { limit: 8_000, isConcreteOverride: true },
     });
   });
 
-  it("allows equality and reports independent or combined blockers", () => {
-    const usage = deriveActorUsage(
-      [result("user", "maya", 9, 12), result("team", "lumen", 27, 30)],
-      { user: "maya", team: "lumen" },
-    );
-    expect(blockersForCost(usage, 3)).toEqual([]);
-    expect(blockersForCost(usage, 4)).toEqual(["user", "team"]);
-
-    usage.team.quotas[0].consumed = 20;
-    expect(blockersForCost(usage, 4)).toEqual(["user"]);
-    usage.user.quotas[0].consumed = 2;
-    usage.team.quotas[0].consumed = 28;
-    expect(blockersForCost(usage, 3)).toEqual(["team"]);
+  it("distinguishes a generic direct quota", () => {
+    expect(
+      deriveActorUsage(results(), { user: "maya", team: "lumen" }).brief,
+    ).toEqual({ limit: 4_000, isConcreteOverride: false });
   });
 
-  it("rejects missing expected quota data", () => {
+  it("rejects missing quota data", () => {
     expect(() =>
-      deriveActorUsage([result("user", "maya", 0, 12)], {
+      deriveActorUsage(results().slice(0, 2), {
         user: "maya",
         team: "lumen",
       }),

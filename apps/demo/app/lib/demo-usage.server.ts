@@ -16,32 +16,29 @@ import {
 } from "./demo-fixtures";
 import {
   type ActorUsage,
-  blockersForCost,
-  type DemoScopeKey,
+  type DemoMetric,
+  type DemoScope,
   deriveActorUsage,
-  metric,
+  metrics,
   type UsageResult,
 } from "./demo-usage";
 import { env } from "./env.server";
 
 export type OperationResult =
   | { status: "success"; message: string }
-  | {
-      status: "blocked";
-      message: string;
-      blockers: DemoScopeKey[];
-    }
+  | { status: "blocked"; message: string; rules: string[] }
   | { status: "error"; message: string; requestId?: string };
 
 type BatutaLike = {
   check(input: {
-    metric: typeof metric;
-    scopes: { key: DemoScopeKey; value: string }[];
+    metric: DemoMetric;
+    scopes: DemoScope[];
+    amount: number;
   }): Promise<{ exceeded: boolean }>;
   record(input: {
-    metric: typeof metric;
-    scopes: { key: DemoScopeKey; value: string }[];
-    consumed: number;
+    metric: DemoMetric;
+    scopes: DemoScope[];
+    amount: number;
   }): Promise<void>;
 };
 
@@ -52,19 +49,30 @@ export type DemoUsageDependencies = {
   client: ClientLike;
 };
 
-function actorScopes(team: DemoTeam, user: DemoUser) {
-  return [
-    { key: "user" as const, value: user.scopeValue },
-    { key: "team" as const, value: team.scopeValue },
-  ];
+function userScope(user: DemoUser): DemoScope {
+  return { key: "user", value: user.scopeValue };
+}
+
+function actorScopes(team: DemoTeam, user: DemoUser): DemoScope[] {
+  return [userScope(user), { key: "team", value: team.scopeValue }];
 }
 
 function safeFailure(error: unknown): OperationResult {
   if (error instanceof BatutaApiError) {
+    const underflow = error.problem?.errors?.some(
+      (item) => item.code === "balance_underflow",
+    );
+    if (underflow) {
+      return {
+        status: "blocked",
+        rules: ["active campaigns"],
+        message: "There is no active campaign to archive.",
+      };
+    }
     return {
       status: "error",
       message:
-        "The managed API rejected the request. Rerun the server seed and demo credential setup, then try again.",
+        "The managed API rejected the request. Rerun the server seed and demo setup, then try again.",
       ...(error.requestId ? { requestId: error.requestId } : {}),
     };
   }
@@ -80,27 +88,60 @@ function safeFailure(error: unknown): OperationResult {
   };
 }
 
-function blockedResult(blockers: DemoScopeKey[]): OperationResult {
-  const label = blockers.length === 2 ? "user and team" : blockers[0];
-  return {
-    status: "blocked",
-    blockers,
-    message: `This operation would exceed the ${label} quota.`,
-  };
+function checksFor(operation: DemoOperation, team: DemoTeam, user: DemoUser) {
+  const checks: {
+    rule: string;
+    metric: DemoMetric;
+    scopes: DemoScope[];
+    amount: number;
+  }[] = [];
+  if (operation.credits > 0) {
+    checks.push({
+      rule: "rolling creative credits",
+      metric: metrics.credits,
+      scopes: actorScopes(team, user),
+      amount: operation.credits,
+    });
+  }
+  if (operation.briefCharacters > 0) {
+    checks.push({
+      rule: "creative brief size",
+      metric: metrics.briefCharacters,
+      scopes: [userScope(user)],
+      amount: operation.briefCharacters,
+    });
+  }
+  if (operation.campaignChange > 0) {
+    checks.push({
+      rule: "active campaigns",
+      metric: metrics.campaigns,
+      scopes: [userScope(user)],
+      amount: operation.campaignChange,
+    });
+  }
+  return checks;
 }
 
 export function createDemoUsageService(dependencies: DemoUsageDependencies) {
   async function queryActorUsage(team: DemoTeam, user: DemoUser) {
-    const response = await dependencies.client.queryUsage({
-      metric,
-      scopes: actorScopes(team, user),
-    });
-    return {
-      evaluatedAt: response.evaluatedAt,
-      usage: deriveActorUsage(response.results as UsageResult[], {
-        user: user.scopeValue,
-        team: team.scopeValue,
+    const scopes = actorScopes(team, user);
+    const responses = await Promise.all([
+      dependencies.client.queryUsage({ metric: metrics.credits, scopes }),
+      dependencies.client.queryUsage({
+        metric: metrics.campaigns,
+        scopes: [userScope(user)],
       }),
+      dependencies.client.queryUsage({
+        metric: metrics.briefCharacters,
+        scopes: [userScope(user)],
+      }),
+    ]);
+    return {
+      evaluatedAt: responses[0].evaluatedAt,
+      usage: deriveActorUsage(
+        responses.flatMap((response) => response.results) as UsageResult[],
+        { user: user.scopeValue, team: team.scopeValue },
+      ),
     };
   }
 
@@ -108,10 +149,7 @@ export function createDemoUsageService(dependencies: DemoUsageDependencies) {
     async getActorUsage(
       team: DemoTeam,
       user: DemoUser,
-    ): Promise<{
-      evaluatedAt: string;
-      usage: ActorUsage;
-    }> {
+    ): Promise<{ evaluatedAt: string; usage: ActorUsage }> {
       return queryActorUsage(team, user);
     },
 
@@ -122,9 +160,7 @@ export function createDemoUsageService(dependencies: DemoUsageDependencies) {
     }): Promise<OperationResult> {
       const team = findTeam(input.teamId);
       const user = team && findUserForTeam(team, input.userId);
-      const operation: DemoOperation | undefined = findOperation(
-        input.operationId,
-      );
+      const operation = findOperation(input.operationId);
       if (!team || !user || !operation) {
         return {
           status: "error",
@@ -132,29 +168,48 @@ export function createDemoUsageService(dependencies: DemoUsageDependencies) {
         };
       }
 
-      const scopes = actorScopes(team, user);
       try {
-        const check = await dependencies.batuta.check({ metric, scopes });
-        const snapshot = await queryActorUsage(team, user);
-        const prospectiveBlockers = blockersForCost(
-          snapshot.usage,
-          operation.cost,
+        const checks = checksFor(operation, team, user);
+        const decisions = await Promise.all(
+          checks.map((check) => dependencies.batuta.check(check)),
         );
-        if (check.exceeded || prospectiveBlockers.length > 0) {
-          const blockers = prospectiveBlockers.length
-            ? prospectiveBlockers
-            : (["user", "team"] as DemoScopeKey[]);
-          return blockedResult(blockers);
+        const rules = checks.flatMap((check, index) =>
+          decisions[index]?.exceeded ? [check.rule] : [],
+        );
+        if (rules.length > 0) {
+          return {
+            status: "blocked",
+            rules,
+            message: `This operation would exceed ${rules.join(" and ")}.`,
+          };
         }
 
-        await dependencies.batuta.record({
-          metric,
-          scopes,
-          consumed: operation.cost,
-        });
+        const recordings: Promise<void>[] = [];
+        if (operation.credits > 0) {
+          recordings.push(
+            dependencies.batuta.record({
+              metric: metrics.credits,
+              scopes: actorScopes(team, user),
+              amount: operation.credits,
+            }),
+          );
+        }
+        if (operation.campaignChange !== 0) {
+          recordings.push(
+            dependencies.batuta.record({
+              metric: metrics.campaigns,
+              scopes: [userScope(user)],
+              amount: operation.campaignChange,
+            }),
+          );
+        }
+        await Promise.all(recordings);
         return {
           status: "success",
-          message: `${operation.name} spent ${operation.cost} ${operation.cost === 1 ? "credit" : "credits"}.`,
+          message:
+            operation.campaignChange < 0
+              ? "One campaign was archived and its balance released."
+              : `${operation.name} completed through Batuta's quota checks.`,
         };
       } catch (error) {
         return safeFailure(error);
@@ -163,7 +218,7 @@ export function createDemoUsageService(dependencies: DemoUsageDependencies) {
   };
 }
 
-const storage = new BatutaStorage<typeof metric, DemoScopeKey>({
+const storage = new BatutaStorage<DemoMetric, DemoScope["key"]>({
   baseUrl: env.BATUTA_URL,
   apiKey: env.BATUTA_API_KEY,
 });

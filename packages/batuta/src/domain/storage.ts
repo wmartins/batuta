@@ -27,13 +27,22 @@ export namespace Storage {
       at: Date;
     };
 
+    type BaseResult<ScopeKey extends Scope<string>["key"]> = {
+      scope: Scope<ScopeKey>;
+    };
+
     export type Result<
       MetricName extends Metric<string>,
       ScopeKey extends Scope<string>["key"],
-    > = {
-      quota: Quota.Synthetic<MetricName, ScopeKey>;
-      scope: Scope<ScopeKey>;
-      consumed: number;
-    };
+    > = BaseResult<ScopeKey> &
+      (
+        | { quota: Quota.Direct<MetricName, ScopeKey> }
+        | {
+            quota:
+              | Quota.Balance<MetricName, ScopeKey>
+              | Quota.Rolling<MetricName, ScopeKey>;
+            used: number;
+          }
+      );
   }
 }

@@ -56,9 +56,18 @@ export async function action({ params, request }: Route.ActionArgs) {
           values: {
             metricId: result.data.metricId,
             scopeId: result.data.scopeId,
-            quotaLimit: String(result.data.quotaLimit),
-            windowAmount: String(result.data.windowAmount),
-            windowUnit: result.data.windowUnit,
+            scopeValue: result.data.scopeValue ?? "",
+            type: result.data.type,
+            limitMode: result.data.quotaLimit === null ? "unlimited" : "finite",
+            quotaLimit:
+              result.data.quotaLimit === null
+                ? ""
+                : String(result.data.quotaLimit),
+            windowAmount:
+              result.data.windowAmount === null
+                ? "1"
+                : String(result.data.windowAmount),
+            windowUnit: result.data.windowUnit ?? "day",
           },
           errors: { form: error.message },
         },
@@ -80,9 +89,19 @@ export default function QuotaEdit({
       : {
           metricId: loaderData.quota.metricId,
           scopeId: loaderData.quota.scopeId,
-          quotaLimit: String(loaderData.quota.quotaLimit),
-          windowAmount: String(loaderData.quota.windowAmount),
-          windowUnit: loaderData.quota.windowUnit,
+          scopeValue: loaderData.quota.scopeValue ?? "",
+          type: loaderData.quota.type,
+          limitMode:
+            loaderData.quota.quotaLimit === null ? "unlimited" : "finite",
+          quotaLimit:
+            loaderData.quota.quotaLimit === null
+              ? ""
+              : String(loaderData.quota.quotaLimit),
+          windowAmount:
+            loaderData.quota.windowAmount === null
+              ? "1"
+              : String(loaderData.quota.windowAmount),
+          windowUnit: loaderData.quota.windowUnit ?? "day",
         };
   const errors = actionData?.intent === "save" ? actionData.errors : undefined;
   return (

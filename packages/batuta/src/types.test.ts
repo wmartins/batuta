@@ -19,24 +19,37 @@ describe("configured domain types", () => {
     expectTypeOf(batuta.check).parameter(0).toEqualTypeOf<{
       metric: AppMetric;
       scopes: AppScope[];
+      amount: number;
     }>();
     expectTypeOf(batuta.record).parameter(0).toEqualTypeOf<{
       metric: AppMetric;
       scopes: AppScope[];
-      consumed: number;
+      amount: number;
     }>();
 
     if (Date.now() < 0) {
       // @ts-expect-error validation context must be explicit
       Scope.validate({ key: "user", value: "user-123" });
       // @ts-expect-error metrics are restricted by the client configuration
-      void batuta.check({ metric: "requests", scopes: [] });
+      void batuta.check({ metric: "requests", scopes: [], amount: 1 });
       void batuta.record({
         metric: "credits",
         // @ts-expect-error scope keys are restricted by the client configuration
         scopes: [{ key: "workspace", value: "workspace-123" }],
-        consumed: 1,
+        amount: 1,
       });
     }
+  });
+
+  it("discriminates storage results by accumulated usage presence", () => {
+    type Result = Storage.Usage.Result<AppMetric, AppScope["key"]>;
+    type Accumulated = Extract<Result, { used: number }>;
+    type Direct = Exclude<Result, Accumulated>;
+
+    expectTypeOf<Accumulated["used"]>().toEqualTypeOf<number>();
+    expectTypeOf<Accumulated["quota"]["type"]>().toEqualTypeOf<
+      "balance" | "rolling"
+    >();
+    expectTypeOf<Direct["quota"]["type"]>().toEqualTypeOf<"direct">();
   });
 });

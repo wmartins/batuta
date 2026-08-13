@@ -38,6 +38,8 @@ export const quotaWindowUnit = pgEnum("quota_window_unit", [
   "week",
 ]);
 
+export const quotaType = pgEnum("quota_type", ["direct", "balance", "rolling"]);
+
 export const workspaces = pgTable(
   "workspaces",
   {
@@ -113,9 +115,11 @@ export const quotas = pgTable(
       .references(() => workspaces.id),
     metricId: uuid("metric_id").notNull(),
     scopeId: uuid("scope_id").notNull(),
-    quotaLimit: doublePrecision("quota_limit").notNull(),
-    windowAmount: integer("window_amount").notNull(),
-    windowUnit: quotaWindowUnit("window_unit").notNull(),
+    scopeValue: text("scope_value"),
+    type: quotaType("quota_type").default("rolling").notNull(),
+    quotaLimit: doublePrecision("quota_limit"),
+    windowAmount: integer("window_amount"),
+    windowUnit: quotaWindowUnit("window_unit"),
     ...timestamps,
   },
   (table) => [
@@ -131,12 +135,26 @@ export const quotas = pgTable(
     }),
     check(
       "quotas_limit_non_negative_finite",
-      sql`${table.quotaLimit} >= 0 and ${table.quotaLimit} < 'Infinity'::double precision`,
+      sql`${table.quotaLimit} is null or (${table.quotaLimit} >= 0 and ${table.quotaLimit} < 'Infinity'::double precision)`,
     ),
-    check("quotas_window_amount_positive", sql`${table.windowAmount} > 0`),
+    check(
+      "quotas_scope_value_valid",
+      sql`${table.scopeValue} is null or length(${table.scopeValue}) between 1 and 512`,
+    ),
+    check(
+      "quotas_kind_window_valid",
+      sql`(${table.type} = 'rolling' and ${table.windowAmount} > 0 and ${table.windowUnit} is not null) or (${table.type} in ('direct', 'balance') and ${table.windowAmount} is null and ${table.windowUnit} is null)`,
+    ),
     index("quotas_workspace_active_idx").on(table.workspaceId, table.deletedAt),
     index("quotas_workspace_metric_idx").on(table.workspaceId, table.metricId),
     index("quotas_workspace_scope_idx").on(table.workspaceId, table.scopeId),
+    index("quotas_effective_lookup_idx").on(
+      table.workspaceId,
+      table.metricId,
+      table.scopeId,
+      table.scopeValue,
+      table.deletedAt,
+    ),
   ],
 );
 
@@ -231,7 +249,7 @@ export const usageEvents = pgTable(
     metricId: uuid("metric_id").notNull(),
     scopeId: uuid("scope_id").notNull(),
     scopeValue: text("scope_value").notNull(),
-    consumed: doublePrecision().notNull(),
+    amount: doublePrecision().notNull(),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -258,8 +276,8 @@ export const usageEvents = pgTable(
       sql`length(${table.scopeValue}) between 1 and 512`,
     ),
     check(
-      "usage_events_consumed_positive_finite",
-      sql`${table.consumed} > 0 and ${table.consumed} < 'Infinity'::double precision`,
+      "usage_events_amount_non_zero_finite",
+      sql`${table.amount} <> 0 and abs(${table.amount}) < 'Infinity'::double precision`,
     ),
     index("usage_events_query_idx").on(
       table.workspaceId,

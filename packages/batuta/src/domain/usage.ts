@@ -8,7 +8,7 @@ export namespace Usage {
   > = {
     metric: MetricName;
     scope: Scope<ScopeKey>;
-    consumed: number;
+    amount: number;
     occurredAt: Date;
   };
 
@@ -18,8 +18,8 @@ export namespace Usage {
   >(usage: Synthetic<MetricName, ScopeKey>): Synthetic<MetricName, ScopeKey> {
     Metric.validate(usage.metric);
     Scope.validate(usage.scope, "usage.scope");
-    if (!Number.isFinite(usage.consumed) || usage.consumed <= 0) {
-      throw new TypeError("consumed must be finite and greater than zero");
+    if (!Number.isFinite(usage.amount) || usage.amount === 0) {
+      throw new TypeError("amount must be finite and non-zero");
     }
     if (!Number.isFinite(usage.occurredAt.getTime())) {
       throw new TypeError("usage.occurredAt must be a valid Date");

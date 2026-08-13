@@ -19,8 +19,8 @@ try {
   storage.database
     .prepare(`
       INSERT INTO quotas
-        (metric, scope_key, quota_limit, window_amount, window_unit)
-      VALUES (?, ?, ?, ?, ?)
+        (metric, scope_key, quota_type, quota_limit, window_amount, window_unit)
+      VALUES (?, ?, 'rolling', ?, ?, ?)
     `)
     .run("credits", "user", 10, 14, "day");
 
@@ -29,9 +29,9 @@ try {
     metric: "credits",
     scopes: [{ key: "user", value: "user-123" }],
   };
-  const before = await batuta.check(input);
-  await batuta.record({ ...input, consumed: 10 });
-  const after = await batuta.check(input);
+  const before = await batuta.check({ ...input, amount: 10 });
+  await batuta.record({ ...input, amount: 10 });
+  const after = await batuta.check({ ...input, amount: 1 });
 
   if (before.exceeded || !after.exceeded) {
     throw new Error(

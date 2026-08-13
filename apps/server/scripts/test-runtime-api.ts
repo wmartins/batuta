@@ -122,10 +122,10 @@ async function main() {
     });
     const batuta = new Batuta({ storage });
     const scopes = [{ key: "user" as const, value: "user-123" }];
-    await expectEqual(batuta.check({ metric: "credits", scopes }), {
+    await expectEqual(batuta.check({ metric: "credits", scopes, amount: 1 }), {
       exceeded: false,
     });
-    await batuta.record({ metric: "credits", scopes, consumed: 3 });
+    await batuta.record({ metric: "credits", scopes, amount: 3 });
     const client = new BatutaClient({
       baseUrl,
       apiKey: created.apiKey,
@@ -133,9 +133,13 @@ async function main() {
     });
     const queried = await client.queryUsage({ metric: "credits", scopes });
     assert.equal(queried.results.length, 1);
-    assert.equal(queried.results[0]?.consumed, 3);
+    const queriedResult = queried.results[0];
+    assert.equal(
+      queriedResult && "used" in queriedResult ? queriedResult.used : undefined,
+      3,
+    );
 
-    const event = [{ metric: "credits", scope: scopes[0], consumed: 2 }];
+    const event = [{ metric: "credits", scope: scopes[0], amount: 2 }];
     const first = await client.recordUsage(event, {
       idempotencyKey: "blackbox-replay-key",
     });

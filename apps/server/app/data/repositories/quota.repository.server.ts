@@ -50,6 +50,8 @@ export function createQuotaRepository(database: Database) {
         database
           .select({
             id: quotas.id,
+            type: quotas.type,
+            scopeValue: quotas.scopeValue,
             quotaLimit: quotas.quotaLimit,
             windowAmount: quotas.windowAmount,
             windowUnit: quotas.windowUnit,

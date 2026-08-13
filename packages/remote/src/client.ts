@@ -20,7 +20,7 @@ export type QueryUsageInput = {
 export type RecordUsageEvent = {
   metric: string;
   scope: Scope<string>;
-  consumed: number;
+  amount: number;
 };
 
 export type BatutaProblem = components["schemas"]["Problem"];

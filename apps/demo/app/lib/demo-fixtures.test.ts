@@ -11,7 +11,18 @@ describe("demo fixtures", () => {
     expect(new Set(userScopeValues).size).toBe(userScopeValues.length);
   });
 
-  it("defines the intended operation costs", () => {
-    expect(operations.map((operation) => operation.cost)).toEqual([1, 3, 10]);
+  it("defines operations that exercise every quota mode", () => {
+    expect(
+      operations.map(({ credits, briefCharacters, campaignChange }) => [
+        credits,
+        briefCharacters,
+        campaignChange,
+      ]),
+    ).toEqual([
+      [1, 600, 0],
+      [3, 2_400, 1],
+      [10, 6_000, 1],
+      [0, 0, -1],
+    ]);
   });
 });

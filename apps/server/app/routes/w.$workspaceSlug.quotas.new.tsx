@@ -37,9 +37,18 @@ export async function action({ params, request }: Route.ActionArgs) {
           values: {
             metricId: result.data.metricId,
             scopeId: result.data.scopeId,
-            quotaLimit: String(result.data.quotaLimit),
-            windowAmount: String(result.data.windowAmount),
-            windowUnit: result.data.windowUnit,
+            scopeValue: result.data.scopeValue ?? "",
+            type: result.data.type,
+            limitMode: result.data.quotaLimit === null ? "unlimited" : "finite",
+            quotaLimit:
+              result.data.quotaLimit === null
+                ? ""
+                : String(result.data.quotaLimit),
+            windowAmount:
+              result.data.windowAmount === null
+                ? "1"
+                : String(result.data.windowAmount),
+            windowUnit: result.data.windowUnit ?? "day",
           },
           errors: { form: error.message },
         },
@@ -60,7 +69,7 @@ export default function QuotasNew({
       <VStack gap={1}>
         <Heading level={1}>Create quota</Heading>
         <Text type="large" color="secondary">
-          Choose active configuration and define an elapsed usage window.
+          Define a direct quota, persistent balance, or rolling usage window.
         </Text>
       </VStack>
       {loaderData.metrics.length === 0 || loaderData.scopes.length === 0 ? (

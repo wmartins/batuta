@@ -18,6 +18,7 @@ Metric.validate("credits");
 Scope.validate({ key: "user", value: "user-1" }, "scope");
 Window.validate({ amount: 1, unit: "day" });
 Quota.validate({
+  type: "rolling",
   metric: "credits",
   scope: "user",
   limit: 10,
@@ -26,7 +27,7 @@ Quota.validate({
 Usage.validate({
   metric: "credits",
   scope: { key: "user", value: "user-1" },
-  consumed: 1,
+  amount: 1,
   occurredAt: new Date(),
 });
 

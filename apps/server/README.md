@@ -28,7 +28,7 @@ From the repository root, install dependencies:
 
 ```sh
 corepack enable
-pnpm install --frozen-lockfile
+corepack pnpm install --frozen-lockfile
 ```
 
 ## Run with PostgreSQL
@@ -45,8 +45,8 @@ migrations, and load representative data:
 ```sh
 cd apps/server
 cp .env.example .env
-pnpm db:migrate
-pnpm db:seed
+corepack pnpm db:migrate
+corepack pnpm db:seed
 ```
 
 Replace the example `API_KEY_PEPPER_V1` with a secret base64url value that
@@ -57,19 +57,20 @@ stable for existing API keys to authenticate.
 openssl rand -base64 48 | tr '+/' '-_' | tr -d '=\n'
 ```
 
-The seed is idempotent. It creates the `acme` and `northstar` management
-examples, including two overlapping quotas for the same metric and scope. It
-also creates the `creative-demo` workspace and its 12-credit user and 30-credit
-team quotas used by [`apps/demo`](../demo/README.md).
+The seed is idempotent. It demonstrates overlapping rolling quotas, persistent
+balances, direct quotas, concrete overrides, and an unlimited override. The
+`creative-demo` workspace combines 12-credit user and 30-credit team rolling
+quotas, a two-campaign balance, a generic 4,000-character direct brief limit,
+and Maya's concrete 8,000-character override.
 
 Start the development server:
 
 ```sh
-pnpm dev
+corepack pnpm dev
 ```
 
 Alternatively, run a server script from the repository root with an explicit
-workspace filter, for example `pnpm --filter @batuta/server dev`.
+workspace filter, for example `corepack pnpm --filter @batuta/server dev`.
 
 Open <http://localhost:5173>. The seed creates two workspaces, so the root route
 shows the workspace chooser. Open <http://localhost:5173/w/acme> to go directly
@@ -86,8 +87,8 @@ docker compose down
 Build and run the Node SSR output:
 
 ```sh
-pnpm build
-pnpm start
+corepack pnpm build
+corepack pnpm start
 ```
 
 The production server listens on port `3000` by default. Set `PORT` to override
@@ -98,13 +99,13 @@ it.
 After changing `app/data/schema.server.ts`, generate and inspect a SQL migration:
 
 ```sh
-pnpm db:generate
+corepack pnpm db:generate
 ```
 
 Apply committed migrations with:
 
 ```sh
-pnpm db:migrate
+corepack pnpm db:migrate
 ```
 
 Do not use Drizzle schema push. Migrations are explicit and never run as an
@@ -115,10 +116,10 @@ explicitly so they can never fall back to the development database:
 
 ```sh
 DATABASE_URL=postgresql://batuta:batuta@localhost:5432/batuta_test \
-  pnpm db:migrate
+  corepack pnpm db:migrate
 
 TEST_DATABASE_URL=postgresql://batuta:batuta@localhost:5432/batuta_test \
-  pnpm test
+  corepack pnpm test
 ```
 
 ## Routes
@@ -136,8 +137,13 @@ routes/w.$workspaceSlug.metrics.$metricId.tsx
 
 The managed storage data plane exposes authenticated resource routes at
 `POST /api/v1/usage/query` and `POST /api/v1/usage/events`. Its hand-written
-OpenAPI 3.1 contract lives in `openapi/openapi.yaml`; run `pnpm openapi:lint`
+OpenAPI 3.1 contract lives in `openapi/openapi.yaml`; run `corepack pnpm openapi:lint`
 after editing it.
+
+The quota-mode migration converts existing definitions to generic `rolling`
+quotas and renames usage-event `consumed` to signed `amount`. Back up production
+data before applying it. Historical positive rolling events remain rolling
+history; the migration does not infer balances or direct-quota state.
 
 ## Workspace API keys
 
@@ -145,9 +151,9 @@ Until the management plane has user authentication and workspace roles, keys
 are managed only with self-hosted operator commands:
 
 ```sh
-pnpm api-key:create -- --workspace acme --name "Local integration"
-pnpm api-key:list -- --workspace acme
-pnpm api-key:revoke -- --id <key-uuid>
+corepack pnpm api-key:create -- --workspace acme --name "Local integration"
+corepack pnpm api-key:list -- --workspace acme
+corepack pnpm api-key:revoke -- --id <key-uuid>
 ```
 
 Creation prints the complete key once. Listing never returns secret hashes or

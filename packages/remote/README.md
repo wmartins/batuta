@@ -18,3 +18,7 @@ API keys are secrets. Never embed this package or a Batuta API key in a browser
 bundle. The managed adapter intentionally uses the server's clock and ignores
 the generic storage contract's client-side timestamps. Like Batuta itself,
 `check()` and `record()` remain separate and non-atomic operations.
+
+The adapter transports quota kinds, concrete overrides, explicit unlimited
+limits, nullable direct usage, and signed balance events without reproducing
+their policy locally. The managed server remains authoritative.

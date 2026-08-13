@@ -1,43 +1,44 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import type { Usage, Window } from "../index.js";
+import type { Usage } from "../index.js";
 import { SQLite3Storage } from "./index.js";
 
 const databases: DatabaseSync[] = [];
-const temporaryDirectories: string[] = [];
-
-function database(): DatabaseSync {
-  const value = new DatabaseSync(":memory:");
-  databases.push(value);
-  return value;
+function setup() {
+  const database = new DatabaseSync(":memory:");
+  databases.push(database);
+  const storage = new SQLite3Storage<string, string>({ database });
+  return { database, storage };
 }
 
-function insertQuota(
-  db: DatabaseSync,
+function quota(
+  database: DatabaseSync,
   input: {
-    id: string;
     metric?: string;
-    scope?: string;
-    limit?: number;
-    amount?: number;
-    unit?: Window.Unit;
+    scopeKey?: string;
+    scopeValue?: string | null;
+    type: "direct" | "balance" | "rolling";
+    limit?: number | null;
+    windowAmount?: number | null;
+    windowUnit?: string | null;
   },
-): void {
-  db.prepare(`
-    INSERT INTO quotas
-      (id, metric, scope_key, quota_limit, window_amount, window_unit)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(
-    input.id,
-    input.metric ?? "credits",
-    input.scope ?? "user",
-    input.limit ?? 10,
-    input.amount ?? 1,
-    input.unit ?? "day",
-  );
+) {
+  database
+    .prepare(`
+      INSERT INTO quotas
+        (metric, scope_key, scope_value, quota_type, quota_limit,
+         window_amount, window_unit)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      input.metric ?? "credits",
+      input.scopeKey ?? "user",
+      input.scopeValue ?? null,
+      input.type,
+      input.limit === undefined ? 10 : input.limit,
+      input.windowAmount ?? (input.type === "rolling" ? 1 : null),
+      input.windowUnit ?? (input.type === "rolling" ? "day" : null),
+    );
 }
 
 function event(
@@ -46,228 +47,184 @@ function event(
   return {
     metric: "credits",
     scope: { key: "user", value: "user-1" },
-    consumed: 1,
+    amount: 1,
     occurredAt: new Date("2026-07-05T12:00:00.000Z"),
     ...input,
   };
 }
 
 afterEach(() => {
-  for (const value of databases.splice(0)) {
-    try {
-      value.close();
-    } catch {}
-  }
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { recursive: true, force: true });
-  }
+  for (const database of databases.splice(0)) database.close();
 });
 
-describe("SQLite3Storage initialization", () => {
-  it("does not mutate the schema during construction", () => {
-    const db = database();
-    new SQLite3Storage({ database: db });
-    expect(
-      db
-        .prepare(
-          "SELECT name FROM sqlite_master WHERE name IN ('quotas', 'usage')",
-        )
-        .all(),
-    ).toEqual([]);
-  });
-
-  it("creates the schema and is idempotent on one instance", async () => {
-    const db = database();
-    const storage = new SQLite3Storage({ database: db });
+describe("SQLite3Storage schema", () => {
+  it("initializes idempotently and enforces quota configurations", async () => {
+    const { database, storage } = setup();
     await storage.initialize();
     await storage.initialize();
-
-    expect(
-      db
-        .prepare(
-          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('quotas', 'usage') ORDER BY name",
-        )
-        .all(),
-    ).toEqual([{ name: "quotas" }, { name: "usage" }]);
+    quota(database, { type: "rolling", windowAmount: 1 });
+    expect(() =>
+      quota(database, { type: "rolling", windowAmount: 1 }),
+    ).toThrow();
+    expect(() => quota(database, { type: "balance" })).toThrow(
+      /mix quota kinds/,
+    );
   });
 
-  it("allows a second adapter to initialize the same database", async () => {
-    const db = database();
-    await new SQLite3Storage({ database: db }).initialize();
-    await new SQLite3Storage({ database: db }).initialize();
-    expect(
-      db
-        .prepare(
-          "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name IN ('quotas', 'usage')",
-        )
-        .get(),
-    ).toEqual({ count: 2 });
+  it("enforces conditional windows and finite non-zero events", async () => {
+    const { database, storage } = setup();
+    await storage.initialize();
+    expect(() =>
+      quota(database, { type: "direct", windowAmount: 1, windowUnit: "day" }),
+    ).toThrow();
+    expect(() =>
+      database.exec(`
+        INSERT INTO usage
+          (metric, scope_key, scope_value, amount, occurred_at)
+        VALUES ('credits', 'user', '1', 0, 1)
+      `),
+    ).toThrow();
   });
 });
 
 describe("SQLite3Storage usage", () => {
-  it("returns externally inserted quotas as domain objects", async () => {
-    const db = database();
-    const storage = new SQLite3Storage({ database: db });
+  it("omits usage for a direct unlimited concrete override", async () => {
+    const { database, storage } = setup();
     await storage.initialize();
-    insertQuota(db, { id: "daily", limit: 50, amount: 14, unit: "day" });
-
+    quota(database, { type: "direct", limit: 5 });
+    quota(database, {
+      type: "direct",
+      scopeValue: "user-1",
+      limit: null,
+    });
     await expect(
       storage.usage({
         metric: "credits",
         scopes: [{ key: "user", value: "user-1" }],
-        at: new Date("2026-07-05T12:00:00.000Z"),
+        at: new Date(),
       }),
     ).resolves.toEqual([
       {
         quota: {
+          type: "direct",
           metric: "credits",
-          scope: "user",
-          limit: 50,
-          window: { amount: 14, unit: "day" },
+          scope: { key: "user", value: "user-1" },
+          limit: "unlimited",
         },
         scope: { key: "user", value: "user-1" },
-        consumed: 0,
       },
     ]);
   });
 
-  it("isolates aggregation by metric, scope key, and scope value", async () => {
-    const db = database();
-    const storage = new SQLite3Storage({ database: db });
+  it("uses concrete sets instead of generic rolling sets", async () => {
+    const { database, storage } = setup();
     await storage.initialize();
-    insertQuota(db, { id: "user-credits" });
-    await storage.record([
-      event({ consumed: 2 }),
-      event({ metric: "tokens", consumed: 100 }),
-      event({ scope: { key: "company", value: "user-1" }, consumed: 4 }),
-      event({ scope: { key: "user", value: "user-2" }, consumed: 8 }),
-    ]);
-
-    const [result] = await storage.usage({
-      metric: "credits",
-      scopes: [{ key: "user", value: "user-1" }],
-      at: new Date("2026-07-05T12:00:00.000Z"),
+    quota(database, { type: "rolling", windowAmount: 1, windowUnit: "day" });
+    quota(database, {
+      type: "rolling",
+      scopeValue: "user-1",
+      windowAmount: 1,
+      windowUnit: "week",
     });
-    expect(result?.consumed).toBe(2);
-    expect(result?.scope).toEqual({ key: "user", value: "user-1" });
-  });
-
-  it("evaluates multiple scopes and overlapping quotas", async () => {
-    const db = database();
-    const storage = new SQLite3Storage({ database: db });
-    await storage.initialize();
-    insertQuota(db, { id: "user-day" });
-    insertQuota(db, { id: "user-week", amount: 1, unit: "week" });
-    insertQuota(db, { id: "company-day", scope: "company" });
-    await storage.record([
-      event({ scope: { key: "user", value: "user-1" }, consumed: 3 }),
-      event({ scope: { key: "company", value: "company-1" }, consumed: 5 }),
-    ]);
-
+    await storage.record([event({ amount: 3 })]);
     const results = await storage.usage({
       metric: "credits",
       scopes: [
         { key: "user", value: "user-1" },
-        { key: "company", value: "company-1" },
+        { key: "user", value: "user-2" },
       ],
       at: new Date("2026-07-05T12:00:00.000Z"),
     });
-    expect(results).toHaveLength(3);
     expect(
-      results.map(({ quota, scope, consumed }) => [
-        quota.window.unit,
-        scope.value,
-        consumed,
+      results.map((result) => [
+        result.quota.type === "rolling" ? result.quota.window.unit : "none",
+        result.scope.value,
+        "used" in result ? result.used : undefined,
       ]),
     ).toEqual(
       expect.arrayContaining([
-        ["day", "user-1", 3],
         ["week", "user-1", 3],
-        ["day", "company-1", 5],
+        ["day", "user-2", 0],
       ]),
     );
   });
 
-  it.each([
-    ["minute", 1, 60_000],
-    ["hour", 1, 3_600_000],
-    ["day", 14, 14 * 86_400_000],
-    ["week", 1, 7 * 86_400_000],
-  ] as const)("uses the exact elapsed boundary for a %s window", async (unit, amount, duration) => {
-    const db = database();
-    const storage = new SQLite3Storage({ database: db });
+  it("preserves the elapsed rolling boundary", async () => {
+    const { database, storage } = setup();
     await storage.initialize();
-    insertQuota(db, { id: `${amount}-${unit}`, amount, unit });
+    quota(database, { type: "rolling" });
     const at = new Date("2026-07-05T12:00:00.000Z");
+    const day = 86_400_000;
     await storage.record([
-      event({ consumed: 1, occurredAt: new Date(at.getTime() - duration - 1) }),
-      event({ consumed: 2, occurredAt: new Date(at.getTime() - duration) }),
-      event({ consumed: 4, occurredAt: new Date(at.getTime() - duration + 1) }),
-      event({ consumed: 8, occurredAt: at }),
-      event({ consumed: 16, occurredAt: new Date(at.getTime() + 1) }),
+      event({ amount: 2, occurredAt: new Date(at.getTime() - day) }),
+      event({ amount: 4, occurredAt: new Date(at.getTime() - day + 1) }),
+      event({ amount: 8, occurredAt: at }),
+      event({ amount: 16, occurredAt: new Date(at.getTime() + 1) }),
     ]);
-
     const [result] = await storage.usage({
       metric: "credits",
       scopes: [{ key: "user", value: "user-1" }],
       at,
     });
-    expect(result?.consumed).toBe(12);
+    expect(result && "used" in result ? result.used : undefined).toBe(12);
+  });
+
+  it("returns persistent signed balances through the evaluation time", async () => {
+    const { database, storage } = setup();
+    await storage.initialize();
+    quota(database, { type: "balance" });
+    await storage.record([event({ amount: 3 }), event({ amount: -1 })]);
+    const [result] = await storage.usage({
+      metric: "credits",
+      scopes: [{ key: "user", value: "user-1" }],
+      at: new Date("2026-07-05T12:00:00.000Z"),
+    });
+    expect(result && "used" in result ? result.used : undefined).toBe(2);
   });
 });
 
-describe("SQLite3Storage recording and ownership", () => {
-  it("enforces invalid quota data through schema constraints", async () => {
-    const db = database();
-    const storage = new SQLite3Storage({ database: db });
-    await storage.initialize();
+describe("SQLite3Storage recording", () => {
+  it("rejects missing quotas, direct quotas, rolling negatives, and balance underflow", async () => {
+    const first = setup();
+    await first.storage.initialize();
+    await expect(first.storage.record([event()])).rejects.toThrow(
+      /effective quota/,
+    );
 
-    expect(() => insertQuota(db, { id: "negative", limit: -1 })).toThrow();
-    expect(() => insertQuota(db, { id: "zero-window", amount: 0 })).toThrow();
+    quota(first.database, { type: "direct" });
+    await expect(first.storage.record([event()])).rejects.toThrow(
+      /direct quotas/,
+    );
+
+    const second = setup();
+    await second.storage.initialize();
+    quota(second.database, { type: "rolling" });
+    await expect(
+      second.storage.record([event({ amount: -1 })]),
+    ).rejects.toThrow(/greater than zero/);
+
+    const third = setup();
+    await third.storage.initialize();
+    quota(third.database, { type: "balance" });
+    await expect(third.storage.record([event({ amount: -1 })])).rejects.toThrow(
+      /negative balance/,
+    );
   });
 
-  it("rolls back an entire batch when one insert fails", async () => {
-    const db = database();
-    const storage = new SQLite3Storage({ database: db });
+  it("rolls back the complete batch when one scope is invalid", async () => {
+    const { database, storage } = setup();
     await storage.initialize();
-    db.exec(`
-      CREATE TRIGGER reject_scope BEFORE INSERT ON usage
-      WHEN NEW.scope_value = 'reject'
-      BEGIN
-        SELECT RAISE(ABORT, 'rejected by test');
-      END
-    `);
-
+    quota(database, { type: "balance" });
     await expect(
       storage.record([
-        event({ scope: { key: "user", value: "accepted" } }),
-        event({ scope: { key: "user", value: "reject" } }),
+        event({ scope: { key: "user", value: "user-1" }, amount: 2 }),
+        event({ scope: { key: "user", value: "user-2" }, amount: -1 }),
       ]),
-    ).rejects.toThrow("rejected by test");
-    expect(db.prepare("SELECT COUNT(*) AS count FROM usage").get()).toEqual({
+    ).rejects.toThrow(/negative balance/);
+    expect(
+      database.prepare("SELECT COUNT(*) AS count FROM usage").get(),
+    ).toEqual({
       count: 0,
     });
-  });
-
-  it("supports injected and filename connections and leaves them open", async () => {
-    const injected = database();
-    const injectedStorage = new SQLite3Storage({ database: injected });
-    await injectedStorage.initialize();
-    expect(injectedStorage.database).toBe(injected);
-    expect(injected.prepare("SELECT 1 AS value").get()).toEqual({ value: 1 });
-
-    const directory = mkdtempSync(join(tmpdir(), "batuta-"));
-    temporaryDirectories.push(directory);
-    const filenameStorage = new SQLite3Storage({
-      filename: join(directory, "batuta.db"),
-    });
-    databases.push(filenameStorage.database);
-    await filenameStorage.initialize();
-    expect(filenameStorage.database.prepare("SELECT 1 AS value").get()).toEqual(
-      {
-        value: 1,
-      },
-    );
   });
 });

@@ -6,7 +6,7 @@ import { Heading, Text } from "@astryxdesign/core/Text";
 import type { FetcherWithComponents } from "react-router";
 
 import type { DemoOperation, DemoTeam, DemoUser } from "~/lib/demo-fixtures";
-import { type ActorUsage, blockersForCost } from "~/lib/demo-usage";
+import type { ActorUsage } from "~/lib/demo-usage";
 import type { OperationResult } from "~/lib/demo-usage.server";
 
 export function OperationList({
@@ -25,14 +25,14 @@ export function OperationList({
   return (
     <VStack gap={3}>
       <VStack gap={1}>
-        <Heading level={2}>Creative operations</Heading>
+        <Heading level={2}>Studio operations</Heading>
         <Text color="secondary">
-          Each action records the same cost against the selected user and team.
+          Each action asks Batuta about the independent rules it needs. Direct
+          limits are checked but never recorded.
         </Text>
       </VStack>
       <Divider />
       {operations.map((operation, index) => {
-        const blockers = usage ? blockersForCost(usage, operation.cost) : [];
         const isSubmitting =
           fetcher.state !== "idle" &&
           fetcher.formData?.get("operation") === operation.id;
@@ -42,7 +42,7 @@ export function OperationList({
               align="start"
               density="spacious"
               label={operation.name}
-              description={`${operation.description} ${operation.cost} ${operation.cost === 1 ? "credit" : "credits"}.`}
+              description={`${operation.description} ${operation.credits > 0 ? `${operation.credits} ${operation.credits === 1 ? "credit" : "credits"}` : "No credits"}${operation.briefCharacters > 0 ? ` · ${operation.briefCharacters.toLocaleString()} brief characters` : ""}${operation.campaignChange > 0 ? " · opens one campaign" : operation.campaignChange < 0 ? " · closes one campaign" : ""}.`}
               endContent={
                 <fetcher.Form method="post">
                   <input type="hidden" name="team" value={team.id} />
@@ -51,8 +51,8 @@ export function OperationList({
                     type="submit"
                     name="operation"
                     value={operation.id}
-                    label={blockers.length ? "Quota reached" : "Run operation"}
-                    isDisabled={!usage || blockers.length > 0}
+                    label="Run operation"
+                    isDisabled={!usage}
                     isLoading={isSubmitting}
                     variant={index === 0 ? "primary" : "secondary"}
                   />

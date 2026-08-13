@@ -10,6 +10,9 @@ function quotaForm(overrides: Record<string, string> = {}) {
   for (const [name, value] of Object.entries({
     metricId,
     scopeId,
+    scopeValue: "",
+    type: "rolling",
+    limitMode: "finite",
     quotaLimit: "100",
     windowAmount: "1",
     windowUnit: "day",
@@ -29,6 +32,8 @@ describe("quota validation", () => {
       data: {
         metricId,
         scopeId,
+        scopeValue: null,
+        type: "rolling",
         quotaLimit: 0,
         windowAmount: 1,
         windowUnit: "minute",
@@ -65,6 +70,47 @@ describe("quota validation", () => {
     ).toMatchObject({
       success: false,
       errors: { metricId: expect.any(String), windowUnit: expect.any(String) },
+    });
+  });
+
+  test("accepts an unlimited concrete direct quota without a window", () => {
+    expect(
+      readQuotaForm(
+        quotaForm({
+          scopeValue: " user-123 ",
+          type: "direct",
+          limitMode: "unlimited",
+          quotaLimit: "",
+          windowAmount: "",
+          windowUnit: "",
+        }),
+      ),
+    ).toEqual({
+      success: true,
+      data: {
+        metricId,
+        scopeId,
+        scopeValue: "user-123",
+        type: "direct",
+        quotaLimit: null,
+        windowAmount: null,
+        windowUnit: null,
+      },
+    });
+  });
+
+  test("accepts balance configuration without rolling fields", () => {
+    expect(
+      readQuotaForm(
+        quotaForm({
+          type: "balance",
+          windowAmount: "",
+          windowUnit: "",
+        }),
+      ),
+    ).toMatchObject({
+      success: true,
+      data: { type: "balance", windowAmount: null, windowUnit: null },
     });
   });
 });

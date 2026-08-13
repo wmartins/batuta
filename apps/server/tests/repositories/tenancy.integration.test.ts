@@ -269,6 +269,8 @@ describe("repository tenant boundaries", () => {
     const base = {
       metricId: metric.id,
       scopeId: scope.id,
+      scopeValue: null,
+      type: "rolling" as const,
       windowAmount: 1,
       windowUnit: "day" as const,
     };
@@ -280,6 +282,7 @@ describe("repository tenant boundaries", () => {
     const second = await repository.create(alpha.id, {
       ...base,
       quotaLimit: 20,
+      windowUnit: "week",
     });
     await repository.create(alpha.id, {
       ...base,
@@ -457,13 +460,13 @@ describe("repository tenant boundaries", () => {
             metricId: metric.id,
             scopeId: alphaScope.id,
             scopeValue: "user-1",
-            consumed: 1,
+            amount: 1,
           },
           {
             metricId: metric.id,
             scopeId: betaScope.id,
             scopeValue: "user-2",
-            consumed: 1,
+            amount: 1,
           },
         ],
       }),
@@ -616,13 +619,13 @@ describe("repository tenant boundaries", () => {
         ["2026-07-07T11:30:00.000Z", 3],
         ["2026-07-07T12:00:00.000Z", 2],
         ["2026-07-07T12:00:00.001Z", 1000],
-      ].map(([occurredAt, consumed]) => ({
+      ].map(([occurredAt, amount]) => ({
         workspaceId: workspace.id,
         batchId: batch.id,
         metricId: metric.id,
         scopeId: scope.id,
         scopeValue: "user-123",
-        consumed: Number(consumed),
+        amount: Number(amount),
         occurredAt: new Date(String(occurredAt)),
       })),
     );
@@ -635,7 +638,12 @@ describe("repository tenant boundaries", () => {
     });
     expect(results).toHaveLength(2);
     expect(
-      results.map((result) => [result.quota.window.unit, result.consumed]),
+      results.map((result) => [
+        result.quota.type === "rolling"
+          ? result.quota.window.unit
+          : result.quota.type,
+        "used" in result ? result.used : undefined,
+      ]),
     ).toEqual(
       expect.arrayContaining([
         ["day", 12],
@@ -666,15 +674,30 @@ describe("repository tenant boundaries", () => {
       .insert(workspaces)
       .values({ slug: "alpha", name: "Alpha" })
       .returning();
-    await database.insert(metrics).values({
+    const [metric] = await database
+      .insert(metrics)
+      .values({
+        workspaceId: workspace.id,
+        key: "credits",
+        name: "Credits",
+      })
+      .returning();
+    const [scope] = await database
+      .insert(scopes)
+      .values({
+        workspaceId: workspace.id,
+        key: "user",
+        name: "User",
+      })
+      .returning();
+    await database.insert(quotas).values({
       workspaceId: workspace.id,
-      key: "credits",
-      name: "Credits",
-    });
-    await database.insert(scopes).values({
-      workspaceId: workspace.id,
-      key: "user",
-      name: "User",
+      metricId: metric.id,
+      scopeId: scope.id,
+      type: "rolling",
+      quotaLimit: 10,
+      windowAmount: 1,
+      windowUnit: "day",
     });
     const [key] = await database
       .insert(apiKeys)
@@ -696,12 +719,12 @@ describe("repository tenant boundaries", () => {
         {
           metric: "credits",
           scope: { key: "user", value: "user-123" },
-          consumed: 2,
+          amount: 2,
         },
         {
           metric: "credits",
           scope: { key: "user", value: "user-123" },
-          consumed: 2,
+          amount: 2,
         },
       ],
     };
@@ -733,11 +756,115 @@ describe("repository tenant boundaries", () => {
           {
             metric: "unknown",
             scope: { key: "user", value: "user-123" },
-            consumed: 1,
+            amount: 1,
           },
         ],
       }),
     ).rejects.toBeInstanceOf(ManagedStorageValidationError);
     await expect(database.select().from(usageBatches)).resolves.toHaveLength(1);
+  });
+
+  test("managed storage applies concrete overrides and protects balance underflow", async () => {
+    const [workspace] = await database
+      .insert(workspaces)
+      .values({ slug: "quota-modes", name: "Quota modes" })
+      .returning();
+    const [rollingMetric, balanceMetric] = await database
+      .insert(metrics)
+      .values([
+        { workspaceId: workspace.id, key: "credits", name: "Credits" },
+        {
+          workspaceId: workspace.id,
+          key: "active_lessons",
+          name: "Active lessons",
+        },
+      ])
+      .returning();
+    const [scope] = await database
+      .insert(scopes)
+      .values({ workspaceId: workspace.id, key: "user", name: "User" })
+      .returning();
+    await database.insert(quotas).values([
+      {
+        workspaceId: workspace.id,
+        metricId: rollingMetric.id,
+        scopeId: scope.id,
+        type: "rolling",
+        quotaLimit: 10,
+        windowAmount: 1,
+        windowUnit: "day",
+      },
+      {
+        workspaceId: workspace.id,
+        metricId: rollingMetric.id,
+        scopeId: scope.id,
+        scopeValue: "user-1",
+        type: "rolling",
+        quotaLimit: null,
+        windowAmount: 1,
+        windowUnit: "week",
+      },
+      {
+        workspaceId: workspace.id,
+        metricId: balanceMetric.id,
+        scopeId: scope.id,
+        type: "balance",
+        quotaLimit: 2,
+      },
+    ]);
+    const [key] = await database
+      .insert(apiKeys)
+      .values({
+        workspaceId: workspace.id,
+        name: "Integration",
+        secretHint: "abcd",
+        secretHash: Buffer.alloc(32, 1),
+      })
+      .returning();
+    const service = createManagedStorageService(database);
+    const at = new Date("2026-07-07T12:00:00.000Z");
+    const usage = await service.query({
+      workspaceId: workspace.id,
+      metric: "credits",
+      scopes: [
+        { key: "user", value: "user-1" },
+        { key: "user", value: "user-2" },
+      ],
+      evaluatedAt: at,
+    });
+    expect(
+      usage.map((result) => [
+        result.scope.value,
+        result.quota.limit,
+        result.quota.type === "rolling" ? result.quota.window.unit : "none",
+      ]),
+    ).toEqual(
+      expect.arrayContaining([
+        ["user-1", "unlimited", "week"],
+        ["user-2", 10, "day"],
+      ]),
+    );
+
+    const record = (idempotencyKey: string, amount: number) =>
+      service.record({
+        workspaceId: workspace.id,
+        apiKeyId: key.id,
+        idempotencyKey,
+        requestHash: Buffer.alloc(32, idempotencyKey.length),
+        occurredAt: at,
+        events: [
+          {
+            metric: "active_lessons",
+            scope: { key: "user", value: "user-1" },
+            amount,
+          },
+        ],
+      });
+    await expect(record("balance-add", 1)).resolves.toBeDefined();
+    await expect(record("balance-reverse", -1)).resolves.toBeDefined();
+    await expect(record("balance-underflow", -1)).rejects.toMatchObject({
+      code: "balance_underflow",
+    });
+    expect(await database.select().from(usageEvents)).toHaveLength(2);
   });
 });

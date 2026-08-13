@@ -13,7 +13,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Query quota-window usage */
+        /** Query effective quota usage */
         post: operations["queryUsage"];
         delete?: never;
         options?: never;
@@ -56,17 +56,40 @@ export interface components {
             /** @enum {string} */
             unit: "minute" | "hour" | "day" | "week";
         };
-        Quota: {
+        Limit: number | "unlimited";
+        QuotaSelector: components["schemas"]["RegistryKey"] | components["schemas"]["Scope"];
+        DirectQuota: {
+            /** @constant */
+            type: "direct";
             metric: components["schemas"]["RegistryKey"];
-            scope: components["schemas"]["RegistryKey"];
-            limit: number;
+            scope: components["schemas"]["QuotaSelector"];
+            limit: components["schemas"]["Limit"];
+        };
+        BalanceQuota: {
+            /** @constant */
+            type: "balance";
+            metric: components["schemas"]["RegistryKey"];
+            scope: components["schemas"]["QuotaSelector"];
+            limit: components["schemas"]["Limit"];
+        };
+        RollingQuota: {
+            /** @constant */
+            type: "rolling";
+            metric: components["schemas"]["RegistryKey"];
+            scope: components["schemas"]["QuotaSelector"];
+            limit: components["schemas"]["Limit"];
             window: components["schemas"]["Window"];
         };
-        UsageResult: {
-            quota: components["schemas"]["Quota"];
+        DirectUsageResult: {
+            quota: components["schemas"]["DirectQuota"];
             scope: components["schemas"]["Scope"];
-            consumed: number;
         };
+        AccumulatedUsageResult: {
+            quota: components["schemas"]["BalanceQuota"] | components["schemas"]["RollingQuota"];
+            scope: components["schemas"]["Scope"];
+            used: number;
+        };
+        UsageResult: components["schemas"]["DirectUsageResult"] | components["schemas"]["AccumulatedUsageResult"];
         QueryUsageResponse: {
             /** Format: date-time */
             evaluatedAt: string;
@@ -75,7 +98,7 @@ export interface components {
         RecordUsageEvent: {
             metric: components["schemas"]["RegistryKey"];
             scope: components["schemas"]["Scope"];
-            consumed: number;
+            amount: number;
         };
         RecordUsageEventsRequest: {
             events: components["schemas"]["RecordUsageEvent"][];
@@ -366,6 +389,7 @@ export interface operations {
                      *       "results": [
                      *         {
                      *           "quota": {
+                     *             "type": "rolling",
                      *             "metric": "credits",
                      *             "scope": "user",
                      *             "limit": 100,
@@ -378,7 +402,7 @@ export interface operations {
                      *             "key": "user",
                      *             "value": "user-123"
                      *           },
-                     *           "consumed": 30
+                     *           "used": 30
                      *         }
                      *       ]
                      *     }
@@ -420,7 +444,7 @@ export interface operations {
                  *             "key": "user",
                  *             "value": "user-123"
                  *           },
-                 *           "consumed": 10
+                 *           "amount": 10
                  *         }
                  *       ]
                  *     }

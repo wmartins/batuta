@@ -27,10 +27,10 @@ export class BatutaStorage<MetricName extends string, ScopeKey extends string>
   ): Promise<void> {
     if (usages.length === 0) return;
     await this.client.recordUsage(
-      usages.map(({ metric, scope, consumed }) => ({
+      usages.map(({ metric, scope, amount }) => ({
         metric,
         scope,
-        consumed,
+        amount,
       })),
     );
   }

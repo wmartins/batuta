@@ -31,31 +31,31 @@ applications.
 Install all workspace dependencies from the repository root:
 
 ```sh
-pnpm install
+corepack pnpm install
 ```
 
 Run a task across every workspace package that provides the corresponding
 script:
 
 ```sh
-pnpm build
-pnpm test
-pnpm typecheck
+corepack pnpm build
+corepack pnpm test
+corepack pnpm typecheck
 ```
 
 You can also address the library directly with pnpm's workspace filter:
 
 ```sh
-pnpm --filter batuta test
-pnpm --filter batuta build
+corepack pnpm --filter batuta test
+corepack pnpm --filter batuta build
 ```
 
 Application-specific scripts live in their package. Run server commands from
 `apps/server`, or address the package explicitly from the repository root:
 
 ```sh
-pnpm --filter @batuta/server dev
-pnpm --filter @batuta/server test
+corepack pnpm --filter @batuta/server dev
+corepack pnpm --filter @batuta/server test
 ```
 
 See the [server README](apps/server/README.md) for PostgreSQL setup, migrations,
